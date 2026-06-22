@@ -335,7 +335,7 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "lightship"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "clap",
  "lightship-core",
@@ -344,7 +344,7 @@ dependencies = [
 
 [[package]]
 name = "lightship-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anstream 0.6.21",
  "globset",
@@ -631,7 +631,7 @@ dependencies = [
 
 [[package]]
 name = "windows-link"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
 
