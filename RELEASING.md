@@ -20,7 +20,7 @@ Piattaforme prodotte: `win32-x64`, `win32-arm64`, `darwin-x64`, `darwin-arm64`,
    Automation) con permesso di publish.
 3. Su GitHub: repo → Settings → Secrets and variables → Actions → aggiungi il
    secret `NPM_TOKEN` con quel token.
-4. Assicurati che il repo GitHub sia `gianlucadark1/lightship` (oppure aggiorna
+4. Assicurati che il repo GitHub sia `gianlucadark/lightship` (oppure aggiorna
    gli URL in `crates/*/Cargo.toml`, `npm/lightship-cli/package.json` e
    `scripts/build-npm.mjs`).
 

@@ -1,0 +1,13 @@
+[package]
+name = "lightship-core"
+version = "0.1.0"
+edition = "2024"
+description = "Core library for Lightship: a static linter for built HTML output."
+license = "MIT"
+repository = "https://github.com/gianlucadark/lightship"
+
+[dependencies]
+ignore = "0.4"
+tl = "0.7"
+rayon = "1"
+miette = { version = "7", features = ["fancy"] }

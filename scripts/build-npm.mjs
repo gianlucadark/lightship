@@ -79,7 +79,7 @@ function platform(target, version) {
     license: "MIT",
     repository: {
       type: "git",
-      url: "git+https://github.com/gianlucadark1/lightship.git",
+      url: "git+https://github.com/gianlucadark/lightship.git",
     },
     os: [os],
     cpu: [cpu],

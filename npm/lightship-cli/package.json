@@ -15,13 +15,13 @@
   ],
   "license": "MIT",
   "author": "Gianluca",
-  "homepage": "https://github.com/gianlucadark1/lightship#readme",
+  "homepage": "https://github.com/gianlucadark/lightship#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gianlucadark1/lightship.git"
+    "url": "git+https://github.com/gianlucadark/lightship.git"
   },
   "bugs": {
-    "url": "https://github.com/gianlucadark1/lightship/issues"
+    "url": "https://github.com/gianlucadark/lightship/issues"
   },
   "bin": {
     "lightship": "bin.js"

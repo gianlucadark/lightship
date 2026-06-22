@@ -1,0 +1,14 @@
+[package]
+name = "lightship"
+version = "0.1.0"
+edition = "2024"
+description = "Static linter for built HTML output (a11y / SEO / performance) that fails your CI build on problems."
+license = "MIT"
+repository = "https://github.com/gianlucadark/lightship"
+
+[[bin]]
+name = "lightship"
+path = "src/main.rs"
+
+[dependencies]
+lightship-core = { path = "../core" }
