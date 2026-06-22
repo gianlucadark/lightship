@@ -29,7 +29,9 @@ const TARGETS = {
   "aarch64-unknown-linux-gnu": { os: "linux", cpu: "arm64", bin: "lightship" },
 };
 
-const pkgName = (os, cpu) => `lightship-cli-${os}-${cpu}`;
+const NPM_SCOPE = "@gianluca.darcangelo";
+const pkgBaseName = (os, cpu) => `lightship-cli-${os}-${cpu}`;
+const pkgName = (os, cpu) => `${NPM_SCOPE}/${pkgBaseName(os, cpu)}`;
 
 function readJson(p) {
   return JSON.parse(readFileSync(p, "utf8"));
@@ -62,7 +64,7 @@ function platform(target, version) {
     throw new Error(`binario non trovato: ${builtBinary}\n(esegui prima: cargo build --release --target ${target})`);
   }
 
-  const outDir = join(ROOT, "npm", "dist", name);
+  const outDir = join(ROOT, "npm", "dist", pkgBaseName(os, cpu));
   const binDir = join(outDir, "bin");
   mkdirSync(binDir, { recursive: true });
 
@@ -97,7 +99,7 @@ function pkgdir(target) {
   if (!meta) {
     throw new Error(`target non riconosciuto: ${target}`);
   }
-  process.stdout.write(join("npm", "dist", pkgName(meta.os, meta.cpu)));
+  process.stdout.write(join("npm", "dist", pkgBaseName(meta.os, meta.cpu)));
 }
 
 function main() {

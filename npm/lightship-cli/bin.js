@@ -11,12 +11,12 @@ const { spawnSync } = require("node:child_process");
 // Deve restare allineato a scripts/build-npm.mjs e agli optionalDependencies
 // in package.json.
 const PLATFORM_PACKAGES = {
-  "win32 x64": "lightship-cli-win32-x64",
-  "win32 arm64": "lightship-cli-win32-arm64",
-  "darwin x64": "lightship-cli-darwin-x64",
-  "darwin arm64": "lightship-cli-darwin-arm64",
-  "linux x64": "lightship-cli-linux-x64",
-  "linux arm64": "lightship-cli-linux-arm64",
+  "win32 x64": "@gianluca.darcangelo/lightship-cli-win32-x64",
+  "win32 arm64": "@gianluca.darcangelo/lightship-cli-win32-arm64",
+  "darwin x64": "@gianluca.darcangelo/lightship-cli-darwin-x64",
+  "darwin arm64": "@gianluca.darcangelo/lightship-cli-darwin-arm64",
+  "linux x64": "@gianluca.darcangelo/lightship-cli-linux-x64",
+  "linux arm64": "@gianluca.darcangelo/lightship-cli-linux-arm64",
 };
 
 function binaryPath() {
