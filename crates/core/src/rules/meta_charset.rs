@@ -1,4 +1,5 @@
 use crate::finding::{Finding, Severity};
+use crate::meta::RuleMeta;
 use crate::rule::Rule;
 use crate::util::has_attr;
 use tl::VDom;
@@ -10,6 +11,18 @@ pub struct MetaCharset;
 impl Rule for MetaCharset {
     fn id(&self) -> &'static str {
         "meta-charset"
+    }
+
+    fn meta(&self) -> RuleMeta {
+        RuleMeta {
+            id: self.id(),
+            severity: Severity::Warn,
+            summary: "È presente <meta charset>",
+            help: "Aggiungi <meta charset=\"utf-8\"> come primo elemento del <head>.",
+            example_bad: "<head><title>Pagina</title></head>",
+            example_good: r#"<head><meta charset="utf-8"></head>"#,
+            docs_url: "https://developer.mozilla.org/docs/Web/HTML/Element/meta#charset",
+        }
     }
 
     fn check(&self, dom: &VDom<'_>, _src: &str) -> Vec<Finding> {

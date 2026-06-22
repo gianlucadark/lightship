@@ -1,4 +1,5 @@
 use crate::finding::{Finding, Severity};
+use crate::meta::RuleMeta;
 use crate::rule::Rule;
 use crate::util::{attr, opening_tag_span};
 use tl::VDom;
@@ -9,6 +10,18 @@ pub struct HtmlLang;
 impl Rule for HtmlLang {
     fn id(&self) -> &'static str {
         "html-lang"
+    }
+
+    fn meta(&self) -> RuleMeta {
+        RuleMeta {
+            id: self.id(),
+            severity: Severity::Error,
+            summary: "Il tag <html> ha un attributo lang non vuoto",
+            help: "Dichiara la lingua della pagina su <html>, es. <html lang=\"it\">.",
+            example_bad: "<html>",
+            example_good: r#"<html lang="it">"#,
+            docs_url: "https://developer.mozilla.org/docs/Web/HTML/Global_attributes/lang",
+        }
     }
 
     fn check(&self, dom: &VDom<'_>, src: &str) -> Vec<Finding> {

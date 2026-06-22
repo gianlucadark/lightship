@@ -1,4 +1,5 @@
 use crate::finding::Finding;
+use crate::meta::RuleMeta;
 use tl::VDom;
 
 /// Una regola di lint statica sull'HTML già parsato.
@@ -10,5 +11,10 @@ use tl::VDom;
 /// thread di rayon mentre processiamo le pagine in parallelo.
 pub trait Rule: Sync {
     fn id(&self) -> &'static str;
+
+    /// Metadati statici della regola (gravità di default, descrizione,
+    /// suggerimento di fix, esempi). Usati da report, `rules` ed `explain`.
+    fn meta(&self) -> RuleMeta;
+
     fn check(&self, dom: &VDom<'_>, src: &str) -> Vec<Finding>;
 }

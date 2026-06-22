@@ -1,4 +1,5 @@
 use crate::finding::{Finding, Severity};
+use crate::meta::RuleMeta;
 use crate::rule::Rule;
 use crate::util::attr;
 use tl::VDom;
@@ -9,6 +10,18 @@ pub struct MetaViewport;
 impl Rule for MetaViewport {
     fn id(&self) -> &'static str {
         "meta-viewport"
+    }
+
+    fn meta(&self) -> RuleMeta {
+        RuleMeta {
+            id: self.id(),
+            severity: Severity::Warn,
+            summary: "È presente <meta name=\"viewport\">",
+            help: "Aggiungi <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> per il responsive.",
+            example_bad: "<head><meta charset=\"utf-8\"></head>",
+            example_good: r#"<meta name="viewport" content="width=device-width, initial-scale=1">"#,
+            docs_url: "https://developer.mozilla.org/docs/Web/HTML/Viewport_meta_tag",
+        }
     }
 
     fn check(&self, dom: &VDom<'_>, _src: &str) -> Vec<Finding> {
@@ -45,8 +58,10 @@ mod tests {
     #[test]
     fn presente_ok() {
         assert!(
-            check(r#"<html><head><meta name="viewport" content="width=device-width"></head></html>"#)
-                .is_empty()
+            check(
+                r#"<html><head><meta name="viewport" content="width=device-width"></head></html>"#
+            )
+            .is_empty()
         );
     }
 

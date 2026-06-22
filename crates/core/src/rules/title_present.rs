@@ -1,4 +1,5 @@
 use crate::finding::{Finding, Severity};
+use crate::meta::RuleMeta;
 use crate::rule::Rule;
 use crate::util::opening_tag_span;
 use tl::VDom;
@@ -9,6 +10,18 @@ pub struct TitlePresent;
 impl Rule for TitlePresent {
     fn id(&self) -> &'static str {
         "title-present"
+    }
+
+    fn meta(&self) -> RuleMeta {
+        RuleMeta {
+            id: self.id(),
+            severity: Severity::Error,
+            summary: "Esiste un <title> con testo non vuoto",
+            help: "Aggiungi un <title> descrittivo e unico nel <head> della pagina.",
+            example_bad: "<head></head>",
+            example_good: "<head><title>Chi siamo · Acme</title></head>",
+            docs_url: "https://developer.mozilla.org/docs/Web/HTML/Element/title",
+        }
     }
 
     fn check(&self, dom: &VDom<'_>, src: &str) -> Vec<Finding> {
@@ -59,6 +72,9 @@ mod tests {
 
     #[test]
     fn title_vuoto_error() {
-        assert_eq!(check("<html><head><title>  </title></head></html>").len(), 1);
+        assert_eq!(
+            check("<html><head><title>  </title></head></html>").len(),
+            1
+        );
     }
 }

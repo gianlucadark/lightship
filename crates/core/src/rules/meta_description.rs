@@ -1,4 +1,5 @@
 use crate::finding::{Finding, Severity};
+use crate::meta::RuleMeta;
 use crate::rule::Rule;
 use crate::util::{attr, attr_non_empty, opening_tag_span};
 use tl::VDom;
@@ -12,11 +13,24 @@ impl Rule for MetaDescription {
         "meta-description"
     }
 
+    fn meta(&self) -> RuleMeta {
+        RuleMeta {
+            id: self.id(),
+            severity: Severity::Warn,
+            summary: "È presente <meta name=\"description\"> con content non vuoto",
+            help: "Aggiungi una descrizione di 50–160 caratteri: <meta name=\"description\" content=\"…\">.",
+            example_bad: r#"<meta name="description" content="">"#,
+            example_good: r#"<meta name="description" content="Negozio di scarpe artigianali a Milano.">"#,
+            docs_url: "https://developer.mozilla.org/docs/Web/HTML/Element/meta/name",
+        }
+    }
+
     fn check(&self, dom: &VDom<'_>, src: &str) -> Vec<Finding> {
         let parser = dom.parser();
         let meta = dom.query_selector("meta").and_then(|it| {
-            it.filter_map(|h| h.get(parser)?.as_tag())
-                .find(|t| attr(t, "name").is_some_and(|v| v.trim().eq_ignore_ascii_case("description")))
+            it.filter_map(|h| h.get(parser)?.as_tag()).find(|t| {
+                attr(t, "name").is_some_and(|v| v.trim().eq_ignore_ascii_case("description"))
+            })
         });
 
         match meta {

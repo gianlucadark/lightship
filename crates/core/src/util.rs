@@ -17,7 +17,9 @@ pub fn attr<'a>(tag: &'a HTMLTag<'a>, name: &str) -> Option<Cow<'a, str>> {
 
 /// Vero se l'attributo (case-insensitive) esiste, qualunque sia il valore.
 pub fn has_attr(tag: &HTMLTag<'_>, name: &str) -> bool {
-    tag.attributes().iter().any(|(k, _)| k.eq_ignore_ascii_case(name))
+    tag.attributes()
+        .iter()
+        .any(|(k, _)| k.eq_ignore_ascii_case(name))
 }
 
 /// Vero se l'attributo (case-insensitive) esiste con un valore non vuoto.
@@ -69,7 +71,8 @@ pub fn has_accessible_name(tag: &HTMLTag<'_>, parser: &Parser<'_>) -> bool {
         return true;
     }
     tag.children().all(parser).iter().any(|n| {
-        n.as_tag()
-            .is_some_and(|t| t.name().as_bytes().eq_ignore_ascii_case(b"img") && attr_non_empty(t, "alt"))
+        n.as_tag().is_some_and(|t| {
+            t.name().as_bytes().eq_ignore_ascii_case(b"img") && attr_non_empty(t, "alt")
+        })
     })
 }

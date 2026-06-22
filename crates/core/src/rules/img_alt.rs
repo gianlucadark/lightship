@@ -1,4 +1,5 @@
 use crate::finding::{Finding, Severity};
+use crate::meta::RuleMeta;
 use crate::rule::Rule;
 use crate::util::{has_attr, opening_tag_span};
 use tl::VDom;
@@ -12,6 +13,18 @@ pub struct ImgAlt;
 impl Rule for ImgAlt {
     fn id(&self) -> &'static str {
         "img-alt"
+    }
+
+    fn meta(&self) -> RuleMeta {
+        RuleMeta {
+            id: self.id(),
+            severity: Severity::Error,
+            summary: "Ogni <img> ha l'attributo alt",
+            help: "Aggiungi un alt descrittivo; usa alt=\"\" per le immagini puramente decorative.",
+            example_bad: r#"<img src="logo.png">"#,
+            example_good: r#"<img src="logo.png" alt="Logo Acme">"#,
+            docs_url: "https://developer.mozilla.org/docs/Web/HTML/Element/img#alt",
+        }
     }
 
     fn check(&self, dom: &VDom<'_>, src: &str) -> Vec<Finding> {

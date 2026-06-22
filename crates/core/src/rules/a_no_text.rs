@@ -1,4 +1,5 @@
 use crate::finding::{Finding, Severity};
+use crate::meta::RuleMeta;
 use crate::rule::Rule;
 use crate::util::{has_accessible_name, has_attr, opening_tag_span};
 use tl::VDom;
@@ -11,6 +12,18 @@ pub struct ANoText;
 impl Rule for ANoText {
     fn id(&self) -> &'static str {
         "a-no-text"
+    }
+
+    fn meta(&self) -> RuleMeta {
+        RuleMeta {
+            id: self.id(),
+            severity: Severity::Warn,
+            summary: "Ogni <a href> ha un nome accessibile",
+            help: "Dai un nome al link: testo visibile, aria-label, title oppure un <img alt>.",
+            example_bad: r#"<a href="/x"></a>"#,
+            example_good: r#"<a href="/x" aria-label="Vai alla home"></a>"#,
+            docs_url: "https://developer.mozilla.org/docs/Web/HTML/Element/a#accessibility",
+        }
     }
 
     fn check(&self, dom: &VDom<'_>, src: &str) -> Vec<Finding> {

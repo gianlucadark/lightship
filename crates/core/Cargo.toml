@@ -1,6 +1,6 @@
 [package]
 name = "lightship-core"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2024"
 description = "Core library for Lightship: a static linter for built HTML output."
 license = "MIT"
@@ -10,4 +10,9 @@ repository = "https://github.com/gianlucadark/lightship"
 ignore = "0.4"
 tl = "0.7"
 rayon = "1"
-miette = { version = "7", features = ["fancy"] }
+owo-colors = "4"
+anstream = "0.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+globset = "0.4"

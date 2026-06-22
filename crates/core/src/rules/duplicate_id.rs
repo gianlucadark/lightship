@@ -1,4 +1,5 @@
 use crate::finding::{Finding, Severity};
+use crate::meta::RuleMeta;
 use crate::rule::Rule;
 use crate::util::{attr, opening_tag_span};
 use std::collections::HashSet;
@@ -11,6 +12,18 @@ pub struct DuplicateId;
 impl Rule for DuplicateId {
     fn id(&self) -> &'static str {
         "duplicate-id"
+    }
+
+    fn meta(&self) -> RuleMeta {
+        RuleMeta {
+            id: self.id(),
+            severity: Severity::Error,
+            summary: "Gli id sono unici nel documento",
+            help: "Rendi unico ogni id; per stili o gruppi condivisi usa una class.",
+            example_bad: r#"<p id="x"></p><span id="x"></span>"#,
+            example_good: r#"<p id="intro"></p><span id="cta"></span>"#,
+            docs_url: "https://developer.mozilla.org/docs/Web/HTML/Global_attributes/id",
+        }
     }
 
     fn check(&self, dom: &VDom<'_>, src: &str) -> Vec<Finding> {
@@ -55,9 +68,8 @@ mod tests {
 
     #[test]
     fn segnala_solo_le_occorrenze_oltre_la_prima() {
-        let f = check(
-            r#"<html><body><p id="x"></p><span id="x"></span><i id="y"></i></body></html>"#,
-        );
+        let f =
+            check(r#"<html><body><p id="x"></p><span id="x"></span><i id="y"></i></body></html>"#);
         assert_eq!(f.len(), 1);
         // punta al secondo elemento, quello duplicato
         assert_eq!(f[0].snippet(), Some(r#"<span id="x">"#));

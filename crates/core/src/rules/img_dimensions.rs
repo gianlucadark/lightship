@@ -1,4 +1,5 @@
 use crate::finding::{Finding, Severity};
+use crate::meta::RuleMeta;
 use crate::rule::Rule;
 use crate::util::{has_attr, opening_tag_span};
 use tl::VDom;
@@ -10,6 +11,18 @@ pub struct ImgDimensions;
 impl Rule for ImgDimensions {
     fn id(&self) -> &'static str {
         "img-dimensions"
+    }
+
+    fn meta(&self) -> RuleMeta {
+        RuleMeta {
+            id: self.id(),
+            severity: Severity::Warn,
+            summary: "Ogni <img> ha width e height",
+            help: "Specifica width e height (o aspect-ratio in CSS) per evitare il layout shift (CLS).",
+            example_bad: r#"<img src="hero.png">"#,
+            example_good: r#"<img src="hero.png" width="800" height="600">"#,
+            docs_url: "https://web.dev/articles/optimize-cls",
+        }
     }
 
     fn check(&self, dom: &VDom<'_>, src: &str) -> Vec<Finding> {

@@ -1,6 +1,6 @@
 [package]
 name = "lightship"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2024"
 description = "Static linter for built HTML output (a11y / SEO / performance) that fails your CI build on problems."
 license = "MIT"
@@ -12,3 +12,5 @@ path = "src/main.rs"
 
 [dependencies]
 lightship-core = { path = "../core" }
+clap = { version = "4", features = ["derive"] }
+notify = "6"

@@ -8,6 +8,7 @@ mod meta_description;
 mod meta_viewport;
 mod title_present;
 
+use crate::meta::RuleMeta;
 use crate::rule::Rule;
 
 /// L'insieme di tutte le regole attive. Ogni regola vive nel suo modulo.
@@ -28,4 +29,38 @@ pub fn all() -> Vec<Box<dyn Rule>> {
         Box::new(img_dimensions::ImgDimensions),
         Box::new(a_no_text::ANoText),
     ]
+}
+
+/// I metadati di tutte le regole, nell'ordine di [`all`]. Fonte per i comandi
+/// `rules`/`explain`, i suggerimenti del report e la lista regole SARIF.
+pub fn registry() -> Vec<RuleMeta> {
+    all().iter().map(|r| r.meta()).collect()
+}
+
+/// I metadati di una singola regola per `id`, se esiste.
+pub fn meta(id: &str) -> Option<RuleMeta> {
+    all().iter().find(|r| r.id() == id).map(|r| r.meta())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn meta_coerente_con_id_e_non_vuota() {
+        for rule in all() {
+            let m = rule.meta();
+            assert_eq!(m.id, rule.id(), "meta.id deve combaciare con id()");
+            assert!(!m.summary.is_empty(), "{}: summary vuota", m.id);
+            assert!(!m.help.is_empty(), "{}: help vuoto", m.id);
+            assert!(m.docs_url.starts_with("https://"), "{}: docs_url", m.id);
+        }
+    }
+
+    #[test]
+    fn registry_e_lookup() {
+        assert_eq!(registry().len(), all().len());
+        assert!(meta("img-alt").is_some());
+        assert!(meta("inesistente").is_none());
+    }
 }
