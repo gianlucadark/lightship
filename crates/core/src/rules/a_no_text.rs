@@ -1,7 +1,7 @@
 use crate::finding::{Finding, Severity};
 use crate::meta::RuleMeta;
 use crate::rule::Rule;
-use crate::util::{has_accessible_name, has_attr, opening_tag_span};
+use crate::util::{has_accessible_name, has_attr, is_a11y_hidden, opening_tag_span};
 use tl::VDom;
 
 /// Un link (`<a href>`) deve avere un nome accessibile: testo, `aria-label`,
@@ -34,6 +34,7 @@ impl Rule for ANoText {
         links
             .filter_map(|h| h.get(parser)?.as_tag())
             .filter(|tag| has_attr(tag, "href"))
+            .filter(|tag| !is_a11y_hidden(tag))
             .filter(|tag| !has_accessible_name(tag, parser))
             .map(|tag| {
                 Finding::new(
@@ -73,5 +74,11 @@ mod tests {
         let f = check(r#"<a href="/x"></a>"#);
         assert_eq!(f.len(), 1);
         assert_eq!(f[0].snippet(), Some(r#"<a href="/x">"#));
+    }
+
+    #[test]
+    fn aria_hidden_non_segnalato() {
+        // Link nascosto agli screen reader: nessun nome richiesto.
+        assert!(check(r#"<a href="/x" aria-hidden="true"></a>"#).is_empty());
     }
 }

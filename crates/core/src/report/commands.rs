@@ -6,18 +6,26 @@ use std::fmt::Write;
 /// Tabella di tutte le regole (comando `rules`): id, gravità, descrizione.
 pub fn rules_table(metas: &[RuleMeta]) -> String {
     let mut out = String::new();
+    // Larghezza della colonna RULE: il più lungo fra gli id e l'intestazione,
+    // così la tabella resta allineata anche con id lunghi (es. quelli `-length`).
+    let id_w = metas
+        .iter()
+        .map(|m| m.id.len())
+        .chain(std::iter::once("RULE".len()))
+        .max()
+        .unwrap_or(4);
     let _ = writeln!(out, "\n🛳  {} rules\n", format!("{}", metas.len()).bold());
     let _ = writeln!(
         out,
         " {} {} {}",
-        format!("{:<18}", "RULE").dimmed(),
+        format!("{:<id_w$}", "RULE").dimmed(),
         format!("{:<8}", "SEVERITY").dimmed(),
         "DESCRIPTION".dimmed(),
     );
     for m in metas {
         let _ = writeln!(
             out,
-            " {:<18} {} {}",
+            " {:<id_w$} {} {}",
             m.id.bold(),
             severity_badge(m.severity),
             m.summary,

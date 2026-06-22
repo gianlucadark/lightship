@@ -1,13 +1,15 @@
 use crate::finding::{Finding, Severity};
 use crate::meta::RuleMeta;
 use crate::rule::Rule;
-use crate::util::{has_attr, opening_tag_span};
+use crate::util::{has_attr, is_a11y_hidden, is_presentational, opening_tag_span};
 use tl::VDom;
 
 /// Ogni `<img>` deve avere l'attributo `alt`.
 ///
 /// `alt=""` è valido (immagine decorativa), quindi segnaliamo solo l'attributo
-/// del tutto mancante.
+/// del tutto mancante. Saltiamo anche le immagini marcate come decorative in
+/// altri modi (`role="presentation"`/`"none"`, `aria-hidden="true"`, `hidden`):
+/// segnalarle sarebbe un falso positivo.
 pub struct ImgAlt;
 
 impl Rule for ImgAlt {
@@ -34,6 +36,7 @@ impl Rule for ImgAlt {
         };
         imgs.filter_map(|h| h.get(parser)?.as_tag())
             .filter(|tag| !has_attr(tag, "alt"))
+            .filter(|tag| !is_presentational(tag) && !is_a11y_hidden(tag))
             .map(|tag| {
                 Finding::new(
                     self.id(),
@@ -70,5 +73,12 @@ mod tests {
     fn alt_vuoto_e_valido() {
         // alt="" = immagine decorativa, è corretto.
         assert!(check(r#"<img src="a.png" alt="">"#).is_empty());
+    }
+
+    #[test]
+    fn decorativa_per_ruolo_o_aria_hidden_non_segnalata() {
+        assert!(check(r#"<img src="a.png" role="presentation">"#).is_empty());
+        assert!(check(r#"<img src="a.png" role="none">"#).is_empty());
+        assert!(check(r#"<img src="a.png" aria-hidden="true">"#).is_empty());
     }
 }

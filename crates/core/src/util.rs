@@ -27,6 +27,24 @@ pub fn attr_non_empty(tag: &HTMLTag<'_>, name: &str) -> bool {
     attr(tag, name).is_some_and(|v| !v.trim().is_empty())
 }
 
+/// Vero se l'elemento è nascosto all'albero di accessibilità: attributo `hidden`
+/// oppure `aria-hidden="true"`. Per questi elementi non ha senso segnalare la
+/// mancanza di testo alternativo o di un nome accessibile.
+pub fn is_a11y_hidden(tag: &HTMLTag<'_>) -> bool {
+    has_attr(tag, "hidden")
+        || attr(tag, "aria-hidden").is_some_and(|v| v.trim().eq_ignore_ascii_case("true"))
+}
+
+/// Vero se l'elemento ha un ruolo "presentazionale" (`role="presentation"` o
+/// `role="none"`): è esposto come puramente decorativo, quindi non richiede un
+/// testo alternativo.
+pub fn is_presentational(tag: &HTMLTag<'_>) -> bool {
+    attr(tag, "role").is_some_and(|v| {
+        let r = v.trim();
+        r.eq_ignore_ascii_case("presentation") || r.eq_ignore_ascii_case("none")
+    })
+}
+
 /// Lo span `(offset, len)` in byte del **solo tag di apertura** dell'elemento
 /// nel sorgente, es. `<img src="hero.png">`.
 ///
