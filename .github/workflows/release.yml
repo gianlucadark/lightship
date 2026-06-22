@@ -20,6 +20,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
+      # npm può rifiutare publish simultanei dello stesso account, soprattutto
+      # durante la creazione iniziale dei pacchetti. Pubblicali in sequenza.
+      max-parallel: 1
       matrix:
         include:
           - target: x86_64-pc-windows-msvc
@@ -71,7 +74,11 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           PKG_DIR=$(node scripts/build-npm.mjs pkgdir ${{ matrix.target }})
-          npm publish "$PKG_DIR" --access public
+          for attempt in 1 2 3; do
+            npm publish "$PKG_DIR" --access public && exit 0
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep $((attempt * 15))
+          done
 
   publish-launcher:
     name: publish launcher
@@ -95,5 +102,10 @@ jobs:
       - name: Publish launcher
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish npm/lightship-cli --access public
- 
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            npm publish npm/lightship-cli --access public && exit 0
+            [ "$attempt" -eq 3 ] && exit 1
+            sleep $((attempt * 15))
+          done
