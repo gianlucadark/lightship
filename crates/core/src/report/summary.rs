@@ -34,7 +34,7 @@ pub fn render(analysis: &Analysis) -> String {
 
     let mut out = String::new();
     out.push('\n');
-    out.push_str(&rule_line(" Riepilogo "));
+    out.push_str(&rule_line(" Summary "));
 
     // Riga conteggi. I valori vanno colorati ma allineati sulla larghezza
     // *visibile* (i codici ANSI non contano): per questo `cell` fa il pad sulla
@@ -46,24 +46,24 @@ pub fn render(analysis: &Analysis) -> String {
     let _ = writeln!(
         out,
         " {} {} {} {}",
-        format!("{:<7}", "Pagine").dimmed(),
+        format!("{:<9}", "Pages").dimmed(),
         cell(pages_v.bold().to_string(), pages_v.chars().count(), 12),
-        format!("{:<7}", "Tempo").dimmed(),
+        format!("{:<9}", "Time").dimmed(),
         time_v.bold(),
     );
     let _ = writeln!(
         out,
         " {} {} {} {}",
-        format!("{:<7}", "Errori").dimmed(),
+        format!("{:<9}", "Errors").dimmed(),
         cell(err_v.red().bold().to_string(), err_v.chars().count(), 12),
-        format!("{:<7}", "Warning").dimmed(),
+        format!("{:<9}", "Warnings").dimmed(),
         warn_v.yellow().bold(),
     );
 
     // Grafico per regola.
     let by_rule = counts_by_rule(analysis);
     if !by_rule.is_empty() {
-        let _ = writeln!(out, "\n {}", "Per regola".dimmed());
+        let _ = writeln!(out, "\n {}", "By rule".dimmed());
         let max = by_rule.iter().map(|(_, &(e, w))| e + w).max().unwrap_or(1);
         // Ordina per conteggio desc, poi per id.
         let mut rows: Vec<(&&str, usize, usize)> =
@@ -92,7 +92,7 @@ pub fn render(analysis: &Analysis) -> String {
     let _ = writeln!(
         out,
         "\n {} {}",
-        format!("{:<9}", "Punteggio").dimmed(),
+        format!("{:<9}", "Score").dimmed(),
         score_str
     );
 
@@ -103,8 +103,8 @@ pub fn render(analysis: &Analysis) -> String {
             out,
             " {}",
             format!(
-                "✖  FAIL · {errors} {} da correggere",
-                plural(errors, "errore", "errori")
+                "✖  FAIL · {errors} {} to fix",
+                plural(errors, "error", "errors")
             )
             .red()
             .bold()
@@ -113,12 +113,15 @@ pub fn render(analysis: &Analysis) -> String {
         let _ = writeln!(
             out,
             " {}",
-            format!("✔  PASS · nessun errore, {warns} warning")
-                .green()
-                .bold()
+            format!(
+                "✔  PASS · no errors, {warns} {}",
+                plural(warns, "warning", "warnings")
+            )
+            .green()
+            .bold()
         );
     } else {
-        let _ = writeln!(out, " {}", "✔  PASS · tutto pulito".green().bold());
+        let _ = writeln!(out, " {}", "✔  PASS · all clean".green().bold());
     }
     out.push_str(&rule_line(""));
     out

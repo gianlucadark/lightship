@@ -18,10 +18,10 @@ impl Rule for ANoText {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
-            summary: "Ogni <a href> ha un nome accessibile",
-            help: "Dai un nome al link: testo visibile, aria-label, title oppure un <img alt>.",
+            summary: "Every <a href> has an accessible name",
+            help: "Give the link a name: visible text, aria-label, title, or an <img alt>.",
             example_bad: r#"<a href="/x"></a>"#,
-            example_good: r#"<a href="/x" aria-label="Vai alla home"></a>"#,
+            example_good: r#"<a href="/x" aria-label="Go to home"></a>"#,
             docs_url: "https://developer.mozilla.org/docs/Web/HTML/Element/a#accessibility",
         }
     }
@@ -39,7 +39,7 @@ impl Rule for ANoText {
                 Finding::new(
                     self.id(),
                     Severity::Warn,
-                    "link senza testo o nome accessibile",
+                    "link has no text or accessible name",
                     Some(opening_tag_span(tag, parser, src)),
                 )
             })

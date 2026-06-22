@@ -19,8 +19,8 @@ impl Rule for ImgAlt {
         RuleMeta {
             id: self.id(),
             severity: Severity::Error,
-            summary: "Ogni <img> ha l'attributo alt",
-            help: "Aggiungi un alt descrittivo; usa alt=\"\" per le immagini puramente decorative.",
+            summary: "Every <img> has an alt attribute",
+            help: "Add a descriptive alt; use alt=\"\" for purely decorative images.",
             example_bad: r#"<img src="logo.png">"#,
             example_good: r#"<img src="logo.png" alt="Logo Acme">"#,
             docs_url: "https://developer.mozilla.org/docs/Web/HTML/Element/img#alt",
@@ -38,7 +38,7 @@ impl Rule for ImgAlt {
                 Finding::new(
                     self.id(),
                     Severity::Error,
-                    "<img> senza attributo alt",
+                    "<img> is missing an alt attribute",
                     Some(opening_tag_span(tag, parser, src)),
                 )
             })

@@ -16,8 +16,8 @@ impl Rule for MetaViewport {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
-            summary: "È presente <meta name=\"viewport\">",
-            help: "Aggiungi <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> per il responsive.",
+            summary: "<meta name=\"viewport\"> is present",
+            help: "Add <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> for responsive pages.",
             example_bad: "<head><meta charset=\"utf-8\"></head>",
             example_good: r#"<meta name="viewport" content="width=device-width, initial-scale=1">"#,
             docs_url: "https://developer.mozilla.org/docs/Web/HTML/Viewport_meta_tag",
@@ -40,7 +40,7 @@ impl Rule for MetaViewport {
         vec![Finding::new(
             self.id(),
             Severity::Warn,
-            "manca <meta name=\"viewport\"> (pagina non responsive)",
+            "missing <meta name=\"viewport\"> (page is not responsive)",
             None,
         )]
     }

@@ -16,10 +16,10 @@ impl Rule for HtmlLang {
         RuleMeta {
             id: self.id(),
             severity: Severity::Error,
-            summary: "Il tag <html> ha un attributo lang non vuoto",
-            help: "Dichiara la lingua della pagina su <html>, es. <html lang=\"it\">.",
+            summary: "The <html> tag has a non-empty lang attribute",
+            help: "Declare the page language on <html>, e.g. <html lang=\"en\">.",
             example_bad: "<html>",
-            example_good: r#"<html lang="it">"#,
+            example_good: r#"<html lang="en">"#,
             docs_url: "https://developer.mozilla.org/docs/Web/HTML/Global_attributes/lang",
         }
     }
@@ -36,7 +36,7 @@ impl Rule for HtmlLang {
                 Finding::new(
                     self.id(),
                     Severity::Error,
-                    "il tag <html> deve avere l'attributo lang",
+                    "<html> is missing a lang attribute",
                     Some(opening_tag_span(tag, parser, src)),
                 )
             })

@@ -1,4 +1,5 @@
 mod config;
+mod detect;
 mod finding;
 mod meta;
 mod report;
@@ -6,7 +7,8 @@ mod rule;
 mod rules;
 mod util;
 
-pub use config::{CONFIG_FILE, Config, DEFAULT_CONFIG};
+pub use config::{CONFIG_FILE, Config, DEFAULT_CI_WORKFLOW, DEFAULT_CONFIG, ci_workflow};
+pub use detect::{Detected, detect_build_dir, detect_framework};
 pub use finding::{Finding, Severity};
 pub use meta::RuleMeta;
 pub use report::{Color, Format, RenderOpts};
@@ -192,12 +194,12 @@ fn discover(dir: &str) -> Vec<PathBuf> {
 /// applicando l'override di gravità della config.
 fn lint_file(path: &Path, rules: &[Box<dyn Rule>], cfg: &Config) -> Vec<Finding> {
     let Ok(source) = std::fs::read_to_string(path) else {
-        eprintln!("lightship: impossibile leggere {}", path.display());
+        eprintln!("lightship: could not read {}", path.display());
         return Vec::new();
     };
 
     let Ok(dom) = tl::parse(&source, tl::ParserOptions::default()) else {
-        eprintln!("lightship: impossibile parsare {}", path.display());
+        eprintln!("lightship: could not parse {}", path.display());
         return Vec::new();
     };
 

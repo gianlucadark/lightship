@@ -10,10 +10,12 @@ use std::time::Duration;
 #[command(
     name = "lightship",
     version,
-    about = "🛳  Linter statico per l'output HTML di build (a11y / SEO / performance)",
-    long_about = "Lightship analizza i file .html già buildati (qualunque framework), \
-                  senza browser, e fa fallire la build su problemi di accessibilità, \
-                  SEO o performance.",
+    about = "🛳  Static linter for built HTML output (a11y / SEO / performance)",
+    long_about = "Lightship analyzes your already-built .html files (any framework), \
+                  without a browser, and fails the build on accessibility, SEO or \
+                  performance problems.\n\n\
+                  Run with no arguments to auto-detect your build output folder \
+                  (dist, build, out, _site, public...).",
     args_conflicts_with_subcommands = true,
     subcommand_negates_reqs = true
 )]
@@ -28,66 +30,71 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Analizza una cartella e segnala i problemi (comando di default).
+    /// Analyze a folder and report problems (the default command).
     #[command(visible_aliases = ["check", "scan"])]
     Analyze(AnalyzeArgs),
 
-    /// Elenca tutte le regole con gravità e descrizione.
+    /// List all rules with their severity and description.
     Rules,
 
-    /// Mostra il dettaglio di una regola: cosa controlla, come correggere, esempi.
+    /// Show a rule in detail: what it checks, how to fix it, examples.
     Explain {
-        /// Id della regola, es. `img-alt`.
+        /// Rule id, e.g. `img-alt`.
         rule: String,
     },
 
-    /// Crea un file `lightship.toml` di default nella cartella indicata.
+    /// Create a default `lightship.toml` (detects your framework).
     Init {
-        /// Cartella in cui creare il file (default: corrente).
+        /// Folder to create the file in (default: current).
         #[arg(default_value = ".")]
         dir: String,
+    },
+
+    /// Scaffold a GitHub Actions workflow that runs Lightship in CI.
+    Ci {
+        /// Build output folder to lint in CI (default: auto-detected).
+        dir: Option<String>,
     },
 }
 
 #[derive(Args)]
 struct AnalyzeArgs {
-    /// Cartella da analizzare ricorsivamente.
-    #[arg(default_value = ".")]
-    dir: String,
+    /// Folder to analyze recursively (default: auto-detected build output).
+    dir: Option<String>,
 
-    /// Stampa solo il pannello di riepilogo, non i singoli finding.
+    /// Print only the summary panel, not individual findings.
     #[arg(short, long)]
     quiet: bool,
 
-    /// Output più dettagliato (non tronca gli snippet lunghi).
+    /// More detailed output (does not truncate long snippets).
     #[arg(short, long)]
     verbose: bool,
 
-    /// Formato di output.
+    /// Output format.
     #[arg(long, value_enum)]
     format: Option<FormatArg>,
 
-    /// Disattiva i colori ANSI.
+    /// Disable ANSI colors.
     #[arg(long = "no-color")]
     no_color: bool,
 
-    /// Non mostrare la riga 💡 con il suggerimento di fix.
+    /// Hide the 💡 fix suggestion line.
     #[arg(long = "no-suggestions")]
     no_suggestions: bool,
 
-    /// Fa fallire la build se i warning superano questa soglia.
+    /// Fail the build if warnings exceed this threshold.
     #[arg(long = "max-warnings", value_name = "N")]
     max_warnings: Option<usize>,
 
-    /// Esegui solo queste regole (separate da virgola).
-    #[arg(long, value_delimiter = ',', value_name = "REGOLE")]
+    /// Run only these rules (comma-separated).
+    #[arg(long, value_delimiter = ',', value_name = "RULES")]
     only: Vec<String>,
 
-    /// Percorso esplicito del file di config.
+    /// Explicit path to the config file.
     #[arg(long, value_name = "PATH")]
     config: Option<PathBuf>,
 
-    /// Ri-analizza automaticamente quando i file cambiano (Ctrl-C per uscire).
+    /// Re-analyze automatically when files change (Ctrl-C to quit).
     #[arg(long)]
     watch: bool,
 }
@@ -143,17 +150,54 @@ fn main() -> ExitCode {
         }
         Some(Command::Explain { rule }) => explain(&rule),
         Some(Command::Init { dir }) => init(&dir),
+        Some(Command::Ci { dir }) => ci(dir.as_deref()),
     }
 }
 
 fn run_analyze(a: &AnalyzeArgs) -> ExitCode {
     let opts = a.to_options();
+
+    // Senza cartella esplicita proviamo a rilevare la cartella di build, così
+    // l'utente medio può lanciare `lightship` e basta.
+    let dir = match &a.dir {
+        Some(d) => d.clone(),
+        None => match resolve_auto_dir() {
+            Some(d) => d,
+            None => return ExitCode::SUCCESS,
+        },
+    };
+
     if a.watch {
-        watch(&a.dir, &opts);
+        watch(&dir, &opts);
         ExitCode::SUCCESS
     } else {
-        let code = lightship_core::run_with(&a.dir, &opts);
+        let code = lightship_core::run_with(&dir, &opts);
         ExitCode::from(code as u8)
+    }
+}
+
+/// Rileva la cartella di build da analizzare quando non è stata passata.
+/// Le note vanno su **stderr** per non sporcare stdout nei formati macchina
+/// (`--format json|sarif|github`). `None` ⇒ niente trovato, già segnalato.
+fn resolve_auto_dir() -> Option<String> {
+    match lightship_core::detect_build_dir(Path::new(".")) {
+        Some(d) => {
+            let shown = d.dir.display();
+            match d.framework {
+                Some(fw) => eprintln!("lightship: analyzing detected output \"{shown}\" ({fw})"),
+                None => eprintln!("lightship: analyzing detected output \"{shown}\""),
+            }
+            Some(d.dir.to_string_lossy().into_owned())
+        }
+        None => {
+            eprintln!(
+                "lightship: no build output folder found.\n\
+                 Build your project first, then point lightship at the output folder, e.g.:\n  \
+                 lightship dist\n\
+                 Common output folders: dist, build, out, _site, public."
+            );
+            None
+        }
     }
 }
 
@@ -165,7 +209,7 @@ fn explain(rule: &str) -> ExitCode {
         }
         None => {
             eprintln!(
-                "lightship: regola sconosciuta '{rule}'.\nRegole disponibili: {}",
+                "lightship: unknown rule '{rule}'.\nAvailable rules: {}",
                 lightship_core::rule_ids().join(", ")
             );
             ExitCode::FAILURE
@@ -176,19 +220,64 @@ fn explain(rule: &str) -> ExitCode {
 fn init(dir: &str) -> ExitCode {
     let path = Path::new(dir).join(lightship_core::CONFIG_FILE);
     if path.exists() {
-        eprintln!(
-            "lightship: {} esiste già, non lo sovrascrivo",
-            path.display()
-        );
+        eprintln!("lightship: {} already exists, not overwriting", path.display());
         return ExitCode::FAILURE;
     }
-    match std::fs::write(&path, lightship_core::DEFAULT_CONFIG) {
+
+    // Rileva il framework per un'intestazione utile e i "next steps".
+    let detected = lightship_core::detect_framework(Path::new(dir));
+    let header = match detected {
+        Some((fw, out)) => {
+            format!("# Detected {fw} project — build output is usually in \"{out}/\".\n")
+        }
+        None => String::new(),
+    };
+    let body = format!("{header}{}", lightship_core::DEFAULT_CONFIG);
+
+    match std::fs::write(&path, body) {
         Ok(()) => {
-            println!("Creato {}", path.display());
+            println!("Created {}", path.display());
+            let out_dir = detected.map(|(_, o)| o).unwrap_or("dist");
+            println!("\nNext steps:");
+            println!("  1. Build your project (e.g. npm run build)");
+            println!("  2. Lint the output:  lightship {out_dir}");
+            println!("  3. Add CI:           lightship ci");
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("lightship: impossibile creare {}: {e}", path.display());
+            eprintln!("lightship: could not create {}: {e}", path.display());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Scaffolda `.github/workflows/lightship.yml`. La cartella di build è quella
+/// esplicita, altrimenti quella tipica del framework rilevato, altrimenti
+/// `dist`. Non sovrascrive un workflow già esistente.
+fn ci(dir_arg: Option<&str>) -> ExitCode {
+    let build_dir = dir_arg
+        .map(str::to_string)
+        .or_else(|| lightship_core::detect_framework(Path::new(".")).map(|(_, o)| o.to_string()))
+        .unwrap_or_else(|| "dist".to_string());
+
+    let workflow_dir = Path::new(".github").join("workflows");
+    let path = workflow_dir.join("lightship.yml");
+    if path.exists() {
+        eprintln!("lightship: {} already exists, not overwriting", path.display());
+        return ExitCode::FAILURE;
+    }
+    if let Err(e) = std::fs::create_dir_all(&workflow_dir) {
+        eprintln!("lightship: could not create {}: {e}", workflow_dir.display());
+        return ExitCode::FAILURE;
+    }
+    match std::fs::write(&path, lightship_core::ci_workflow(&build_dir)) {
+        Ok(()) => {
+            println!("Created {}", path.display());
+            println!("It builds your project and runs `lightship {build_dir}` on every push and PR.");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("lightship: could not create {}: {e}", path.display());
             ExitCode::FAILURE
         }
     }
@@ -206,12 +295,12 @@ fn watch(dir: &str, opts: &Options) {
     }) {
         Ok(w) => w,
         Err(e) => {
-            eprintln!("lightship: impossibile avviare il watch: {e}");
+            eprintln!("lightship: could not start watch mode: {e}");
             return;
         }
     };
     if let Err(e) = watcher.watch(Path::new(dir), RecursiveMode::Recursive) {
-        eprintln!("lightship: impossibile osservare {dir}: {e}");
+        eprintln!("lightship: could not watch {dir}: {e}");
         return;
     }
 
@@ -226,5 +315,5 @@ fn clear_and_run(dir: &str, opts: &Options) {
     // Pulisce lo schermo e riposiziona il cursore in alto a sinistra.
     print!("\x1B[2J\x1B[H");
     let _ = lightship_core::run_with(dir, opts);
-    println!("\n{}", "  (watch attivo · Ctrl-C per uscire)");
+    println!("\n  (watching · Ctrl-C to quit)");
 }

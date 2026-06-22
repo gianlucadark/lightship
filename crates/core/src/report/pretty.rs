@@ -18,10 +18,10 @@ pub fn render(analysis: &Analysis, opts: &RenderOpts) -> String {
         "Lightship".cyan().bold(),
         format!("v{}", env!("CARGO_PKG_VERSION")).dimmed()
     );
-    let _ = writeln!(out, "{}\n", format!("   analisi di {}", opts.dir).dimmed());
+    let _ = writeln!(out, "{}\n", format!("   analyzing {}", opts.dir).dimmed());
 
     if analysis.findings.is_empty() {
-        let _ = writeln!(out, "  {}  Nessun problema trovato.", "✔".green().bold());
+        let _ = writeln!(out, "  {}  No issues found.", "✔".green().bold());
     } else if !opts.quiet {
         render_groups(&mut out, analysis, &metas, opts);
     }
@@ -64,12 +64,13 @@ fn render_file(out: &mut String, group: &[&Finding], metas: &[RuleMeta], opts: &
         format!("⚠{warns}").dimmed().to_string()
     };
 
+    let issue_word = if group.len() == 1 { "issue" } else { "issues" };
     let _ = writeln!(
         out,
         "{} {}  {}  {} {}",
         "❯".cyan().bold(),
         path.bold(),
-        format!("· {} issue", group.len()).dimmed(),
+        format!("· {} {issue_word}", group.len()).dimmed(),
         err_badge,
         warn_badge,
     );

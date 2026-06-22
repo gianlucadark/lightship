@@ -90,16 +90,25 @@ puoi sempre usare `cargo run -p lightship -- <cartella>` dalla root del repo.
 ## Uso
 
 ```bash
+lightship                       # auto-rileva la cartella di build e la analizza
 lightship [CARTELLA]            # = lightship analyze CARTELLA
 lightship analyze [CARTELLA]    # analizza (alias: check, scan)
 lightship rules                 # elenca tutte le regole con gravità e descrizione
 lightship explain <regola>      # dettaglio di una regola: cosa controlla, come correggere, esempi
-lightship init [CARTELLA]       # crea un lightship.toml di default
+lightship init [CARTELLA]       # crea un lightship.toml (rileva il framework)
+lightship ci [CARTELLA]         # genera un workflow GitHub Actions pronto all'uso
 ```
+
+> **Zero-config:** lanciato **senza argomenti**, Lightship prova a rilevare la
+> cartella di output del tuo progetto (dal framework in `package.json` o dai file
+> di config; in fallback prova `dist`, `build`, `out`, `_site`, `public`) e la
+> analizza. Niente da ricordare: builda e lancia `lightship`. La nota di
+> rilevamento va su **stderr**, così `--format json|sarif|github` resta pulito su
+> stdout.
 
 ### Opzioni di `analyze`
 
-- `CARTELLA` — cartella da analizzare (default: corrente).
+- `CARTELLA` — cartella da analizzare (default: auto-rilevata, vedi sopra).
 - `-q, --quiet` — stampa solo il pannello di riepilogo.
 - `-v, --verbose` — output più dettagliato.
 - `--format <pretty|compact|json|sarif|github>` — formato di output (default `pretty`).
@@ -159,28 +168,30 @@ lightship dist
 
 Esempio con output reale (`pretty`):
 
+L'output utente è in **inglese**:
+
 ```text
 🛳  Lightship v0.2.0
-   analisi di dist
+   analyzing dist
 
 ❯ dist/blog/index.html  · 1 issue  ✖1 ⚠0
   ✖ img-alt  L1:C1
-    <img> senza attributo alt
+    <img> is missing an alt attribute
     1 │ <img src="/assets/cover.png">
-      │ ▲ qui
-    💡 Aggiungi un alt descrittivo; usa alt="" per le immagini decorative.
+      │ ▲ here
+    💡 Add a descriptive alt; use alt="" for purely decorative images.
 
-──────────────────── Riepilogo ─────────────────────
- Pagine  12           Tempo   7 ms
- Errori  3 ✖          Warning 5 ⚠
+───────────────────── Summary ──────────────────────
+ Pages     12           Time      7 ms
+ Errors    3 ✖          Warnings  5 ⚠
 
- Per regola
+ By rule
    img-alt          ███████  3
    meta-viewport    ████     2
 
- Punteggio 61/100  (D)
+ Score     61/100  (D)
 
- ✖  FAIL · 3 errori da correggere
+ ✖  FAIL · 3 errors to fix
 ────────────────────────────────────────────────────
 ```
 
@@ -193,10 +204,14 @@ cargo run -p lightship -- "C:/percorso/al/tuo/progetto/dist"
 
 ### In CI (blocca la build sugli Error)
 
+Il modo più rapido: `lightship ci` genera `.github/workflows/lightship.yml` già
+pronto (build + analisi della cartella rilevata), senza sovrascrivere un workflow
+esistente. In alternativa, aggiungilo a mano:
+
 ```yaml
 # esempio GitHub Actions
 - run: npm run build
-- run: lightship dist     # esce con 1 se ci sono Error → il job fallisce
+- run: npx lightship dist   # esce con 1 se ci sono Error → il job fallisce
 ```
 
 ---

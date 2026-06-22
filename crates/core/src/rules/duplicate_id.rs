@@ -18,8 +18,8 @@ impl Rule for DuplicateId {
         RuleMeta {
             id: self.id(),
             severity: Severity::Error,
-            summary: "Gli id sono unici nel documento",
-            help: "Rendi unico ogni id; per stili o gruppi condivisi usa una class.",
+            summary: "Element ids are unique in the document",
+            help: "Make every id unique; use a class for shared styling or groups.",
             example_bad: r#"<p id="x"></p><span id="x"></span>"#,
             example_good: r#"<p id="intro"></p><span id="cta"></span>"#,
             docs_url: "https://developer.mozilla.org/docs/Web/HTML/Global_attributes/id",
@@ -46,7 +46,7 @@ impl Rule for DuplicateId {
                 findings.push(Finding::new(
                     self.id(),
                     Severity::Error,
-                    format!("id duplicato: \"{id}\""),
+                    format!("duplicate id: \"{id}\""),
                     Some(opening_tag_span(tag, parser, src)),
                 ));
             }

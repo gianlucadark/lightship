@@ -44,7 +44,7 @@ pub fn render(finding: &Finding, indent: usize) -> String {
         blank = " ".repeat(gutter_w),
         line = shown,
         caret_pad = " ".repeat(col + lead.chars().count()),
-        qui = "qui".dimmed(),
+        qui = "here".dimmed(),
     )
 }
 

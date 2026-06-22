@@ -17,8 +17,8 @@ impl Rule for ImgDimensions {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
-            summary: "Ogni <img> ha width e height",
-            help: "Specifica width e height (o aspect-ratio in CSS) per evitare il layout shift (CLS).",
+            summary: "Every <img> has width and height",
+            help: "Set width and height (or aspect-ratio in CSS) to avoid layout shift (CLS).",
             example_bad: r#"<img src="hero.png">"#,
             example_good: r#"<img src="hero.png" width="800" height="600">"#,
             docs_url: "https://web.dev/articles/optimize-cls",
@@ -36,7 +36,7 @@ impl Rule for ImgDimensions {
                 Finding::new(
                     self.id(),
                     Severity::Warn,
-                    "<img> senza width/height (rischio layout shift)",
+                    "<img> is missing width/height (layout shift risk)",
                     Some(opening_tag_span(tag, parser, src)),
                 )
             })

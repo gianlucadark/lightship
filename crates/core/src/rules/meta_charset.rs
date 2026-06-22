@@ -17,9 +17,9 @@ impl Rule for MetaCharset {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
-            summary: "È presente <meta charset>",
-            help: "Aggiungi <meta charset=\"utf-8\"> come primo elemento del <head>.",
-            example_bad: "<head><title>Pagina</title></head>",
+            summary: "<meta charset> is present",
+            help: "Add <meta charset=\"utf-8\"> as the first element of <head>.",
+            example_bad: "<head><title>Page</title></head>",
             example_good: r#"<head><meta charset="utf-8"></head>"#,
             docs_url: "https://developer.mozilla.org/docs/Web/HTML/Element/meta#charset",
         }
@@ -41,7 +41,7 @@ impl Rule for MetaCharset {
         vec![Finding::new(
             self.id(),
             Severity::Warn,
-            "manca <meta charset>",
+            "missing <meta charset>",
             None,
         )]
     }

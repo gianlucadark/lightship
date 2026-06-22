@@ -16,10 +16,10 @@ impl Rule for TitlePresent {
         RuleMeta {
             id: self.id(),
             severity: Severity::Error,
-            summary: "Esiste un <title> con testo non vuoto",
-            help: "Aggiungi un <title> descrittivo e unico nel <head> della pagina.",
+            summary: "A <title> with non-empty text exists",
+            help: "Add a descriptive, unique <title> in the page <head>.",
             example_bad: "<head></head>",
-            example_good: "<head><title>Chi siamo · Acme</title></head>",
+            example_good: "<head><title>About · Acme</title></head>",
             docs_url: "https://developer.mozilla.org/docs/Web/HTML/Element/title",
         }
     }
@@ -35,14 +35,14 @@ impl Rule for TitlePresent {
             Some(tag) if tag.inner_text(parser).trim().is_empty() => vec![Finding::new(
                 self.id(),
                 Severity::Error,
-                "<title> presente ma vuoto",
+                "<title> is present but empty",
                 Some(opening_tag_span(tag, parser, src)),
             )],
             Some(_) => Vec::new(),
             None => vec![Finding::new(
                 self.id(),
                 Severity::Error,
-                "manca un <title> non vuoto",
+                "missing a non-empty <title>",
                 None,
             )],
         }

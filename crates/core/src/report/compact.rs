@@ -47,7 +47,7 @@ pub fn render(analysis: &Analysis, opts: &RenderOpts) -> String {
     };
     let _ = writeln!(
         out,
-        "{} · {} pagine · {} ms",
+        "{} · {} pages · {} ms",
         verdict,
         analysis.pages,
         analysis.elapsed.as_millis()

@@ -17,10 +17,10 @@ impl Rule for MetaDescription {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
-            summary: "È presente <meta name=\"description\"> con content non vuoto",
-            help: "Aggiungi una descrizione di 50–160 caratteri: <meta name=\"description\" content=\"…\">.",
+            summary: "<meta name=\"description\"> with non-empty content is present",
+            help: "Add a 50–160 character description: <meta name=\"description\" content=\"…\">.",
             example_bad: r#"<meta name="description" content="">"#,
-            example_good: r#"<meta name="description" content="Negozio di scarpe artigianali a Milano.">"#,
+            example_good: r#"<meta name="description" content="Handmade leather shoes, crafted in Milan.">"#,
             docs_url: "https://developer.mozilla.org/docs/Web/HTML/Element/meta/name",
         }
     }
@@ -37,14 +37,14 @@ impl Rule for MetaDescription {
             Some(tag) if !attr_non_empty(tag, "content") => vec![Finding::new(
                 self.id(),
                 Severity::Warn,
-                "<meta name=\"description\"> con content vuoto",
+                "<meta name=\"description\"> has empty content",
                 Some(opening_tag_span(tag, parser, src)),
             )],
             Some(_) => Vec::new(),
             None => vec![Finding::new(
                 self.id(),
                 Severity::Warn,
-                "manca <meta name=\"description\">",
+                "missing <meta name=\"description\">",
                 None,
             )],
         }
