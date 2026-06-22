@@ -6,23 +6,48 @@ use crate::rules;
 use owo_colors::OwoColorize;
 use std::fmt::Write;
 
-/// Dashboard a colori: banner, finding raggruppati per file e pannello finale.
+/// Quanti finding mostrare per file prima di comprimere il resto in una riga
+/// `… +N altri`. `--verbose` rimuove il limite.
+const MAX_PER_FILE: usize = 5;
+
+/// Human-first terminal report: verdict, findings grouped by file, final summary.
 pub fn render(analysis: &Analysis, opts: &RenderOpts) -> String {
     let metas = rules::registry();
     let mut out = String::new();
+    let errors = analysis.errors();
+    let warnings = analysis.warnings();
 
-    // Banner.
     let _ = writeln!(
         out,
-        "\n🛳  {} {}",
-        "Lightship".cyan().bold(),
+        "\n{}  {} {}",
+        "◆".cyan().bold(),
+        "LIGHTSHIP".cyan().bold(),
         format!("v{}", env!("CARGO_PKG_VERSION")).dimmed()
     );
-    let _ = writeln!(out, "{}\n", format!("   analyzing {}", opts.dir).dimmed());
+    let _ = writeln!(out, "   {} {}", "Scanning".dimmed(), opts.dir.bold());
+
+    let verdict = if errors > 0 {
+        "CHECK FAILED".red().bold().to_string()
+    } else {
+        "CHECK PASSED".green().bold().to_string()
+    };
+    let counts = format!(
+        "{} · {} · {}",
+        count(errors, "error", "errors"),
+        count(warnings, "warning", "warnings"),
+        count(analysis.pages, "page", "pages"),
+    );
+    let _ = writeln!(out, "\n   {}  {}", verdict, counts.dimmed());
 
     if analysis.findings.is_empty() {
-        let _ = writeln!(out, "  {}  No issues found.", "✔".green().bold());
+        let _ = writeln!(
+            out,
+            "\n   {} {}",
+            "✓".green().bold(),
+            "Your built HTML looks good.".green()
+        );
     } else if !opts.quiet {
+        out.push('\n');
         render_groups(&mut out, analysis, &metas, opts);
     }
 
@@ -30,7 +55,6 @@ pub fn render(analysis: &Analysis, opts: &RenderOpts) -> String {
     out
 }
 
-/// Raggruppa i finding (già ordinati per file) e renderizza ogni gruppo.
 fn render_groups(out: &mut String, analysis: &Analysis, metas: &[RuleMeta], opts: &RenderOpts) {
     let findings = &analysis.findings;
     let mut i = 0;
@@ -50,57 +74,96 @@ fn render_file(out: &mut String, group: &[&Finding], metas: &[RuleMeta], opts: &
         .iter()
         .filter(|f| f.severity == Severity::Error)
         .count();
-    let warns = group.len() - errors;
+    let warnings = group.len() - errors;
     let path = group[0].file.display().to_string();
 
-    let err_badge = if errors > 0 {
-        format!("✖{errors}").red().to_string()
-    } else {
-        format!("✖{errors}").dimmed().to_string()
-    };
-    let warn_badge = if warns > 0 {
-        format!("⚠{warns}").yellow().to_string()
-    } else {
-        format!("⚠{warns}").dimmed().to_string()
-    };
+    let mut stats = Vec::new();
+    if errors > 0 {
+        stats.push(count(errors, "error", "errors").red().to_string());
+    }
+    if warnings > 0 {
+        stats.push(count(warnings, "warning", "warnings").yellow().to_string());
+    }
 
-    let issue_word = if group.len() == 1 { "issue" } else { "issues" };
     let _ = writeln!(
         out,
-        "{} {}  {}  {} {}",
-        "❯".cyan().bold(),
+        "{} {}  {}",
+        "┌─".cyan().dimmed(),
         path.bold(),
-        format!("· {} {issue_word}", group.len()).dimmed(),
-        err_badge,
-        warn_badge,
+        stats.join(" · ")
     );
 
-    for f in group {
+    // Per non sommergere l'utente, mostriamo i primi MAX_PER_FILE finding (gli
+    // errori vengono prima per via dell'ordinamento) e riassumiamo il resto.
+    // `--verbose` mostra tutto.
+    let shown = if opts.verbose {
+        group.len()
+    } else {
+        group.len().min(MAX_PER_FILE)
+    };
+    for f in &group[..shown] {
         render_finding(out, f, metas, opts);
     }
+    let hidden = group.len() - shown;
+    if hidden > 0 {
+        let _ = writeln!(
+            out,
+            "{}     {}",
+            "│".cyan().dimmed(),
+            format!("… +{hidden} more in this file (use --verbose to show all)").dimmed()
+        );
+    }
+    let _ = writeln!(out, "{}\n", "└─".cyan().dimmed());
 }
 
 fn render_finding(out: &mut String, f: &Finding, metas: &[RuleMeta], opts: &RenderOpts) {
     let badge = match f.severity {
-        Severity::Error => "✖".red().bold().to_string(),
-        Severity::Warn => "⚠".yellow().bold().to_string(),
+        Severity::Error => format!("{:<7}", "ERROR")
+            .on_red()
+            .white()
+            .bold()
+            .to_string(),
+        Severity::Warn => format!("{:<7}", "WARNING")
+            .on_yellow()
+            .black()
+            .bold()
+            .to_string(),
     };
     let loc = match (f.line, f.column) {
-        (Some(l), Some(c)) => format!("  {}", format!("L{l}:C{c}").dimmed()),
+        (Some(line), Some(column)) => format!(" · {line}:{column}"),
         _ => String::new(),
     };
 
-    let _ = writeln!(out, "  {} {}{}", badge, f.rule.bold(), loc);
-    let _ = writeln!(out, "    {}", f.message);
+    let _ = writeln!(out, "{}", "│".cyan().dimmed());
+    let _ = writeln!(
+        out,
+        "{}  {}  {}{}",
+        "├─".cyan().dimmed(),
+        badge,
+        f.rule.cyan().bold(),
+        loc.dimmed()
+    );
+    let _ = writeln!(out, "{}     {}", "│".cyan().dimmed(), f.message.bold());
 
     if f.span.is_some() {
-        out.push_str(&snippet::render(f, 4));
+        for line in snippet::render(f, 4).lines() {
+            let _ = writeln!(out, "{} {}", "│".cyan().dimmed(), line);
+        }
     }
 
     if opts.suggestions {
         if let Some(meta) = find_meta(metas, f.rule) {
-            let _ = writeln!(out, "    💡 {}", meta.help.italic().dimmed());
+            let _ = writeln!(
+                out,
+                "{}     {} {}",
+                "│".cyan().dimmed(),
+                "Fix".green().bold(),
+                meta.help.dimmed()
+            );
         }
     }
-    out.push('\n');
+}
+
+fn count(n: usize, singular: &str, plural: &str) -> String {
+    format!("{n} {}", if n == 1 { singular } else { plural })
 }

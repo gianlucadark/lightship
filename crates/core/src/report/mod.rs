@@ -129,4 +129,22 @@ mod tests {
         assert_eq!(Format::parse("gh"), Some(Format::Github));
         assert_eq!(Format::parse("boh"), None);
     }
+
+    #[test]
+    fn pretty_report_has_a_clear_visual_hierarchy() {
+        let report = pretty::render(
+            &sample(),
+            &RenderOpts {
+                suggestions: true,
+                verbose: false,
+                quiet: false,
+                dir: "dist".to_string(),
+            },
+        );
+        assert!(report.contains("CHECK FAILED"));
+        assert!(report.contains("dist/index.html"));
+        assert!(report.contains("ERROR"));
+        assert!(report.contains("Fix"));
+        assert!(report.contains("Results"));
+    }
 }

@@ -19,7 +19,11 @@ pub fn render(finding: &Finding, indent: usize) -> String {
     let line_start = src[..offset].rfind('\n').map_or(0, |i| i + 1);
     let line_end = src[offset..].find('\n').map_or(src.len(), |i| offset + i);
     let line_text = &src[line_start..line_end];
-    let line_no = src[..offset].bytes().filter(|&b| b == b'\n').count() + 1;
+    // Numero di riga già calcolato in `attach_with`; fallback al conteggio diretto
+    // per i finding costruiti senza orchestratore (es. nei test).
+    let line_no = finding
+        .line
+        .unwrap_or_else(|| src[..offset].bytes().filter(|&b| b == b'\n').count() + 1);
 
     // Colonna (in caratteri) del token nella riga. Un singolo caret che punta
     // all'inizio del tag è più pulito che sottolinearlo per intero.

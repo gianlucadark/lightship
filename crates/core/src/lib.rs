@@ -2,6 +2,7 @@ mod config;
 mod detect;
 mod finding;
 mod meta;
+mod progress;
 mod report;
 mod rule;
 mod rules;
@@ -89,8 +90,12 @@ pub fn run(dir: &str) -> i32 {
 /// altrimenti.
 pub fn run_with(dir: &str, opts: &Options) -> i32 {
     let cfg = Config::load(dir, opts.config_path.as_deref());
-    let analysis = analyze_with(dir, opts, &cfg);
     let format = opts.format.or(cfg.format).unwrap_or(Format::Pretty);
+
+    // Lo spinner ha senso solo per i formati umani e quando non siamo in
+    // `--quiet`; `Progress` poi lo accende solo se stderr è un terminale.
+    let show_progress = !opts.quiet && matches!(format, Format::Pretty | Format::Compact);
+    let analysis = analyze_with(dir, opts, &cfg, show_progress);
 
     let ropts = RenderOpts {
         suggestions: opts.suggestions,
@@ -134,11 +139,11 @@ pub fn rule_ids() -> Vec<&'static str> {
 /// testabile del giro, senza stampare nulla.
 pub fn analyze(dir: &str) -> Analysis {
     let cfg = Config::load(dir, None);
-    analyze_with(dir, &Options::default(), &cfg)
+    analyze_with(dir, &Options::default(), &cfg, false)
 }
 
 /// Cuore dell'analisi: discovery + filtri config/`--only` + lint in parallelo.
-fn analyze_with(dir: &str, opts: &Options, cfg: &Config) -> Analysis {
+fn analyze_with(dir: &str, opts: &Options, cfg: &Config, show_progress: bool) -> Analysis {
     let start = Instant::now();
 
     let files: Vec<PathBuf> = discover(dir)
@@ -155,10 +160,16 @@ fn analyze_with(dir: &str, opts: &Options, cfg: &Config) -> Analysis {
         .filter(|r| opts.only.is_empty() || opts.only.iter().any(|o| o == r.id()))
         .collect();
 
+    let progress = progress::Progress::new(files.len(), show_progress);
     let mut findings: Vec<Finding> = files
         .par_iter()
-        .flat_map_iter(|path| lint_file(path, &rules, cfg))
+        .flat_map_iter(|path| {
+            let f = lint_file(path, &rules, cfg);
+            progress.tick();
+            f
+        })
         .collect();
+    progress.finish();
 
     // Ordine deterministico: prima per file, poi per regola → output raggruppato.
     findings.sort_by(|a, b| a.file.cmp(&b.file).then_with(|| a.rule.cmp(b.rule)));
@@ -170,15 +181,41 @@ fn analyze_with(dir: &str, opts: &Options, cfg: &Config) -> Analysis {
     }
 }
 
+/// Cartelle pesanti che non sono mai output di build: le potiamo *prima* di
+/// entrarci, così non sprechiamo tempo a camminare migliaia di file di
+/// dipendenze quando l'utente punta lightship alla root del progetto.
+const PRUNED_DIRS: &[&str] = &[
+    "node_modules",
+    ".git",
+    ".svn",
+    ".hg",
+    ".cache",
+    "vendor",
+    "bower_components",
+    ".venv",
+    "__pycache__",
+];
+
 /// Raccoglie ricorsivamente tutti i `.html` sotto `dir`.
 ///
 /// Disabilitiamo i filtri standard di `ignore` (gitignore ecc.) perché vogliamo
 /// linterare l'output di build anche quando vive in cartelle gitignorate come
-/// `dist/`; teniamo solo `hidden(true)` per saltare `.git` e simili.
+/// `dist/`; teniamo solo `hidden(true)` per saltare `.git` e simili. In più
+/// potiamo esplicitamente le cartelle pesanti (`node_modules`, `vendor`, …) via
+/// [`PRUNED_DIRS`], così non ci entriamo nemmeno.
 fn discover(dir: &str) -> Vec<PathBuf> {
     WalkBuilder::new(dir)
         .standard_filters(false)
         .hidden(true)
+        .filter_entry(|e| {
+            // Pota le directory note: i file restano accettati.
+            if e.file_type().is_some_and(|t| t.is_dir()) {
+                let name = e.file_name().to_string_lossy();
+                !PRUNED_DIRS.iter().any(|d| name.eq_ignore_ascii_case(d))
+            } else {
+                true
+            }
+        })
         .build()
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
@@ -205,13 +242,38 @@ fn lint_file(path: &Path, rules: &[Box<dyn Rule>], cfg: &Config) -> Vec<Finding>
 
     // Sorgente condiviso fra tutti i finding del file: gli span vi puntano.
     let shared: Arc<str> = Arc::from(source.as_str());
+    // Indice delle righe costruito una sola volta per file e riusato da tutti i
+    // finding per calcolare riga/colonna senza riscandire il sorgente.
+    let index = finding::LineIndex::new(&source);
     let mut out = Vec::new();
     for rule in rules {
         for mut finding in rule.check(&dom, &source) {
             finding.severity = cfg.severity_for(finding.rule, finding.severity);
-            finding.attach(path.to_path_buf(), shared.clone());
+            finding.attach_with(path.to_path_buf(), shared.clone(), &index);
             out.push(finding);
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `discover` non deve scendere in `node_modules` & co.
+    #[test]
+    fn discover_skips_heavy_dirs() {
+        let base = std::env::temp_dir().join(format!("lightship-discover-{}", std::process::id()));
+        let nm = base.join("node_modules").join("pkg");
+        std::fs::create_dir_all(&nm).unwrap();
+        std::fs::write(base.join("index.html"), "<html></html>").unwrap();
+        std::fs::write(nm.join("dep.html"), "<html></html>").unwrap();
+
+        let found = discover(&base.to_string_lossy());
+
+        std::fs::remove_dir_all(&base).ok();
+
+        assert_eq!(found.len(), 1, "atteso solo index.html, trovati: {found:?}");
+        assert!(found[0].ends_with("index.html"));
+    }
 }
