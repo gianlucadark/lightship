@@ -41,7 +41,10 @@ pub fn detect_build_dir(root: &Path) -> Option<Detected> {
     for (framework, rel) in candidates {
         let path = root.join(rel);
         if path.is_dir() && has_html(&path) {
-            return Some(Detected { framework, dir: path });
+            return Some(Detected {
+                framework,
+                dir: path,
+            });
         }
     }
     None
@@ -134,7 +137,8 @@ mod tests {
     use std::fs;
 
     fn tmp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("lightship-detect-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("lightship-detect-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir

@@ -171,7 +171,7 @@ Esempio con output reale (`pretty`):
 L'output utente è in **inglese**:
 
 ```text
-🛳  Lightship v0.2.0
+🛳  Lightship v0.2.1
    analyzing dist
 
 ❯ dist/blog/index.html  · 1 issue  ✖1 ⚠0

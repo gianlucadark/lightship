@@ -220,7 +220,10 @@ fn explain(rule: &str) -> ExitCode {
 fn init(dir: &str) -> ExitCode {
     let path = Path::new(dir).join(lightship_core::CONFIG_FILE);
     if path.exists() {
-        eprintln!("lightship: {} already exists, not overwriting", path.display());
+        eprintln!(
+            "lightship: {} already exists, not overwriting",
+            path.display()
+        );
         return ExitCode::FAILURE;
     }
 
@@ -263,17 +266,25 @@ fn ci(dir_arg: Option<&str>) -> ExitCode {
     let workflow_dir = Path::new(".github").join("workflows");
     let path = workflow_dir.join("lightship.yml");
     if path.exists() {
-        eprintln!("lightship: {} already exists, not overwriting", path.display());
+        eprintln!(
+            "lightship: {} already exists, not overwriting",
+            path.display()
+        );
         return ExitCode::FAILURE;
     }
     if let Err(e) = std::fs::create_dir_all(&workflow_dir) {
-        eprintln!("lightship: could not create {}: {e}", workflow_dir.display());
+        eprintln!(
+            "lightship: could not create {}: {e}",
+            workflow_dir.display()
+        );
         return ExitCode::FAILURE;
     }
     match std::fs::write(&path, lightship_core::ci_workflow(&build_dir)) {
         Ok(()) => {
             println!("Created {}", path.display());
-            println!("It builds your project and runs `lightship {build_dir}` on every push and PR.");
+            println!(
+                "It builds your project and runs `lightship {build_dir}` on every push and PR."
+            );
             ExitCode::SUCCESS
         }
         Err(e) => {
