@@ -75,7 +75,7 @@ jobs:
         run: |
           PKG_DIR=$(node scripts/build-npm.mjs pkgdir ${{ matrix.target }})
           for attempt in 1 2 3; do
-            npm publish "$PKG_DIR" --access public && exit 0
+            npm publish "./$PKG_DIR" --access public && exit 0
             [ "$attempt" -eq 3 ] && exit 1
             sleep $((attempt * 15))
           done
@@ -105,7 +105,7 @@ jobs:
         shell: bash
         run: |
           for attempt in 1 2 3; do
-            npm publish npm/lightship-cli --access public && exit 0
+            npm publish ./npm/lightship-cli --access public && exit 0
             [ "$attempt" -eq 3 ] && exit 1
             sleep $((attempt * 15))
           done
