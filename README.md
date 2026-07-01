@@ -275,7 +275,7 @@ lightship dist
 Example real output (`pretty`):
 
 ```text
-◆  LIGHTSHIP v0.2.2
+◆  LIGHTSHIP v1.0.0
    Scanning dist
 
    CHECK FAILED  1 error · 0 warnings · 12 pages
