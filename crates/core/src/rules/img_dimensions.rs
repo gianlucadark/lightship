@@ -1,5 +1,5 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
+use crate::meta::{Category, RuleMeta};
 use crate::rule::Rule;
 use crate::util::{has_attr, opening_tag_span};
 use tl::VDom;
@@ -17,6 +17,7 @@ impl Rule for ImgDimensions {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
+            category: Category::Performance,
             summary: "Every <img> has width and height",
             help: "Set width and height (or aspect-ratio in CSS) to avoid layout shift (CLS).",
             example_bad: r#"<img src="hero.png">"#,

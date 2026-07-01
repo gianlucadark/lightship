@@ -1,9 +1,18 @@
 use crate::finding::Severity;
-use crate::meta::RuleMeta;
+use crate::meta::{Category, RuleMeta};
 use owo_colors::OwoColorize;
 use std::fmt::Write;
 
-/// Tabella di tutte le regole (comando `rules`): id, gravità, descrizione.
+/// Ordine di presentazione delle categorie nella tabella `rules`.
+const CATEGORY_ORDER: &[Category] = &[
+    Category::Accessibility,
+    Category::Seo,
+    Category::Performance,
+    Category::Security,
+    Category::Correctness,
+];
+
+/// Tabella di tutte le regole (comando `rules`), raggruppate per categoria.
 pub fn rules_table(metas: &[RuleMeta]) -> String {
     let mut out = String::new();
     // Larghezza della colonna RULE: il più lungo fra gli id e l'intestazione,
@@ -15,28 +24,42 @@ pub fn rules_table(metas: &[RuleMeta]) -> String {
         .max()
         .unwrap_or(4);
     let _ = writeln!(out, "\n🛳  {} rules\n", format!("{}", metas.len()).bold());
-    let _ = writeln!(
-        out,
-        " {} {} {}",
-        format!("{:<id_w$}", "RULE").dimmed(),
-        format!("{:<8}", "SEVERITY").dimmed(),
-        "DESCRIPTION".dimmed(),
-    );
-    for m in metas {
-        let _ = writeln!(
-            out,
-            " {:<id_w$} {} {}",
-            m.id.bold(),
-            severity_badge(m.severity),
-            m.summary,
-        );
+
+    for &category in CATEGORY_ORDER {
+        let rules: Vec<&RuleMeta> = metas.iter().filter(|m| m.category == category).collect();
+        if rules.is_empty() {
+            continue;
+        }
+        let _ = writeln!(out, "{}", category_title(category).bold());
+        for m in rules {
+            let _ = writeln!(
+                out,
+                "  {:<id_w$} {} {}",
+                m.id.bold(),
+                severity_badge(m.severity),
+                m.summary,
+            );
+        }
+        out.push('\n');
     }
+
     let _ = writeln!(
         out,
-        "\n{}",
+        "{}",
         "Details for a rule: lightship explain <rule>".dimmed()
     );
     out
+}
+
+/// Titolo leggibile di una categoria per le intestazioni della tabella.
+fn category_title(c: Category) -> &'static str {
+    match c {
+        Category::Accessibility => "Accessibility",
+        Category::Seo => "SEO",
+        Category::Performance => "Performance",
+        Category::Security => "Security",
+        Category::Correctness => "Correctness",
+    }
 }
 
 /// Scheda dettagliata di una regola (comando `explain`).
@@ -44,9 +67,10 @@ pub fn explain(m: &RuleMeta) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "\n{}  {}",
+        "\n{}  {}  {}",
         m.id.cyan().bold(),
-        severity_badge(m.severity)
+        severity_badge(m.severity),
+        category_title(m.category).dimmed()
     );
     let _ = writeln!(out, "\n{}", m.summary);
     let _ = writeln!(out, "\n{}", "How to fix".bold());

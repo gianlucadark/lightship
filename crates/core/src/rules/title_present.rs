@@ -1,6 +1,6 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
-use crate::rule::Rule;
+use crate::meta::{Category, RuleMeta};
+use crate::rule::{Rule, RuleScope};
 use crate::util::opening_tag_span;
 use tl::VDom;
 
@@ -12,10 +12,15 @@ impl Rule for TitlePresent {
         "title-present"
     }
 
+    fn scope(&self) -> RuleScope {
+        RuleScope::Document
+    }
+
     fn meta(&self) -> RuleMeta {
         RuleMeta {
             id: self.id(),
             severity: Severity::Error,
+            category: Category::Accessibility,
             summary: "A <title> with non-empty text exists",
             help: "Add a descriptive, unique <title> in the page <head>.",
             example_bad: "<head></head>",

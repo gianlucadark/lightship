@@ -1,5 +1,5 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
+use crate::meta::{Category, RuleMeta};
 use crate::rule::Rule;
 use crate::util::{has_accessible_name, is_a11y_hidden, opening_tag_span};
 use tl::VDom;
@@ -18,6 +18,7 @@ impl Rule for ButtonName {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
+            category: Category::Accessibility,
             summary: "Every <button> has an accessible name",
             help: "Give the button text, an aria-label, or an <img alt> (common with icon buttons).",
             example_bad: r#"<button><svg>…</svg></button>"#,

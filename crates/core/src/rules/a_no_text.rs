@@ -1,5 +1,5 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
+use crate::meta::{Category, RuleMeta};
 use crate::rule::Rule;
 use crate::util::{has_accessible_name, has_attr, is_a11y_hidden, opening_tag_span};
 use tl::VDom;
@@ -18,6 +18,7 @@ impl Rule for ANoText {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
+            category: Category::Accessibility,
             summary: "Every <a href> has an accessible name",
             help: "Give the link a name: visible text, aria-label, title, or an <img alt>.",
             example_bad: r#"<a href="/x"></a>"#,

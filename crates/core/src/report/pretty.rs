@@ -1,7 +1,7 @@
 use crate::Analysis;
 use crate::finding::{Finding, Severity};
 use crate::meta::RuleMeta;
-use crate::report::{RenderOpts, find_meta, snippet, summary};
+use crate::report::{Glyphs, RenderOpts, find_meta, snippet, summary};
 use crate::rules;
 use owo_colors::OwoColorize;
 use std::fmt::Write;
@@ -12,6 +12,7 @@ const MAX_PER_FILE: usize = 5;
 
 /// Human-first terminal report: verdict, findings grouped by file, final summary.
 pub fn render(analysis: &Analysis, opts: &RenderOpts) -> String {
+    let g = opts.glyphs();
     let metas = rules::registry();
     let mut out = String::new();
     let errors = analysis.errors();
@@ -20,7 +21,7 @@ pub fn render(analysis: &Analysis, opts: &RenderOpts) -> String {
     let _ = writeln!(
         out,
         "\n{}  {} {}",
-        "◆".cyan().bold(),
+        g.diamond.cyan().bold(),
         "LIGHTSHIP".cyan().bold(),
         format!("v{}", env!("CARGO_PKG_VERSION")).dimmed()
     );
@@ -43,19 +44,25 @@ pub fn render(analysis: &Analysis, opts: &RenderOpts) -> String {
         let _ = writeln!(
             out,
             "\n   {} {}",
-            "✓".green().bold(),
+            g.check.green().bold(),
             "Your built HTML looks good.".green()
         );
     } else if !opts.quiet {
         out.push('\n');
-        render_groups(&mut out, analysis, &metas, opts);
+        render_groups(&mut out, analysis, &metas, opts, &g);
     }
 
-    out.push_str(&summary::render(analysis));
+    out.push_str(&summary::render(analysis, opts));
     out
 }
 
-fn render_groups(out: &mut String, analysis: &Analysis, metas: &[RuleMeta], opts: &RenderOpts) {
+fn render_groups(
+    out: &mut String,
+    analysis: &Analysis,
+    metas: &[RuleMeta],
+    opts: &RenderOpts,
+    g: &Glyphs,
+) {
     let findings = &analysis.findings;
     let mut i = 0;
     while i < findings.len() {
@@ -65,11 +72,17 @@ fn render_groups(out: &mut String, analysis: &Analysis, metas: &[RuleMeta], opts
             .take_while(|f| &f.file == file)
             .collect();
         i += group.len();
-        render_file(out, &group, metas, opts);
+        render_file(out, &group, metas, opts, g);
     }
 }
 
-fn render_file(out: &mut String, group: &[&Finding], metas: &[RuleMeta], opts: &RenderOpts) {
+fn render_file(
+    out: &mut String,
+    group: &[&Finding],
+    metas: &[RuleMeta],
+    opts: &RenderOpts,
+    g: &Glyphs,
+) {
     let errors = group
         .iter()
         .filter(|f| f.severity == Severity::Error)
@@ -84,11 +97,14 @@ fn render_file(out: &mut String, group: &[&Finding], metas: &[RuleMeta], opts: &
     if warnings > 0 {
         stats.push(count(warnings, "warning", "warnings").yellow().to_string());
     }
+    // Punteggio della singola pagina, accanto alle statistiche.
+    let (score, grade) = summary::score_from(errors, warnings);
+    stats.push(color_grade(format!("{grade} {score}"), grade));
 
     let _ = writeln!(
         out,
         "{} {}  {}",
-        "┌─".cyan().dimmed(),
+        g.tl.cyan().dimmed(),
         path.bold(),
         stats.join(" · ")
     );
@@ -102,21 +118,27 @@ fn render_file(out: &mut String, group: &[&Finding], metas: &[RuleMeta], opts: &
         group.len().min(MAX_PER_FILE)
     };
     for f in &group[..shown] {
-        render_finding(out, f, metas, opts);
+        render_finding(out, f, metas, opts, g);
     }
     let hidden = group.len() - shown;
     if hidden > 0 {
         let _ = writeln!(
             out,
             "{}     {}",
-            "│".cyan().dimmed(),
+            g.bar.cyan().dimmed(),
             format!("… +{hidden} more in this file (use --verbose to show all)").dimmed()
         );
     }
-    let _ = writeln!(out, "{}\n", "└─".cyan().dimmed());
+    let _ = writeln!(out, "{}\n", g.bl.cyan().dimmed());
 }
 
-fn render_finding(out: &mut String, f: &Finding, metas: &[RuleMeta], opts: &RenderOpts) {
+fn render_finding(
+    out: &mut String,
+    f: &Finding,
+    metas: &[RuleMeta],
+    opts: &RenderOpts,
+    g: &Glyphs,
+) {
     let badge = match f.severity {
         Severity::Error => format!("{:<7}", "ERROR")
             .on_red()
@@ -134,33 +156,42 @@ fn render_finding(out: &mut String, f: &Finding, metas: &[RuleMeta], opts: &Rend
         _ => String::new(),
     };
 
-    let _ = writeln!(out, "{}", "│".cyan().dimmed());
+    let _ = writeln!(out, "{}", g.bar.cyan().dimmed());
     let _ = writeln!(
         out,
         "{}  {}  {}{}",
-        "├─".cyan().dimmed(),
+        g.branch.cyan().dimmed(),
         badge,
         f.rule.cyan().bold(),
         loc.dimmed()
     );
-    let _ = writeln!(out, "{}     {}", "│".cyan().dimmed(), f.message.bold());
+    let _ = writeln!(out, "{}     {}", g.bar.cyan().dimmed(), f.message.bold());
 
     if f.span.is_some() {
-        for line in snippet::render(f, 4).lines() {
-            let _ = writeln!(out, "{} {}", "│".cyan().dimmed(), line);
+        for line in snippet::render(f, 4, g, opts.width).lines() {
+            let _ = writeln!(out, "{} {}", g.bar.cyan().dimmed(), line);
         }
     }
 
-    if opts.suggestions {
-        if let Some(meta) = find_meta(metas, f.rule) {
-            let _ = writeln!(
-                out,
-                "{}     {} {}",
-                "│".cyan().dimmed(),
-                "Fix".green().bold(),
-                meta.help.dimmed()
-            );
-        }
+    if opts.suggestions
+        && let Some(meta) = find_meta(metas, f.rule)
+    {
+        let _ = writeln!(
+            out,
+            "{}     {} {}",
+            g.bar.cyan().dimmed(),
+            "Fix".green().bold(),
+            meta.help.dimmed()
+        );
+    }
+}
+
+/// Colora un'etichetta di voto (`A 95`) secondo il grado.
+fn color_grade(text: String, grade: char) -> String {
+    match grade {
+        'A' | 'B' => text.green().to_string(),
+        'C' | 'D' => text.yellow().to_string(),
+        _ => text.red().to_string(),
     }
 }
 

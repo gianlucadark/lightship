@@ -1,5 +1,5 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
+use crate::meta::{Category, RuleMeta};
 use crate::rule::Rule;
 use crate::util::{attr_non_empty, is_a11y_hidden, opening_tag_span};
 use tl::VDom;
@@ -17,6 +17,7 @@ impl Rule for IframeTitle {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
+            category: Category::Accessibility,
             summary: "Every <iframe> has a non-empty title",
             help: "Add a title describing the frame, e.g. <iframe title=\"Location map\">.",
             example_bad: r#"<iframe src="map.html"></iframe>"#,

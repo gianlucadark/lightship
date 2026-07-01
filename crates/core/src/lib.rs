@@ -1,6 +1,8 @@
+mod baseline;
 mod config;
 mod detect;
 mod finding;
+mod fix;
 mod meta;
 mod progress;
 mod report;
@@ -8,12 +10,14 @@ mod rule;
 mod rules;
 mod util;
 
+pub use baseline::{BASELINE_FILE, Baseline};
 pub use config::{CONFIG_FILE, Config, DEFAULT_CI_WORKFLOW, DEFAULT_CONFIG, ci_workflow};
 pub use detect::{Detected, detect_build_dir, detect_framework};
 pub use finding::{Finding, Severity};
-pub use meta::RuleMeta;
+pub use fix::{Edit, Fix, apply_edits, parse_selection};
+pub use meta::{Category, RuleMeta};
 pub use report::{Color, Format, RenderOpts};
-pub use rule::Rule;
+pub use rule::{Rule, RuleScope};
 
 use ignore::WalkBuilder;
 use rayon::prelude::*;
@@ -25,7 +29,12 @@ use std::time::{Duration, Instant};
 /// Risultato dell'analisi di una cartella.
 pub struct Analysis {
     pub findings: Vec<Finding>,
+    /// File `.html` effettivamente analizzati (esclusi quelli saltati).
     pub pages: usize,
+    /// File `.html` saltati perché illeggibili, non parsabili o troppo grandi.
+    pub skipped: usize,
+    /// Finding già noti soppressi dal baseline.
+    pub baselined: usize,
     pub elapsed: Duration,
 }
 
@@ -57,12 +66,28 @@ pub struct Options {
     pub format: Option<Format>,
     /// Scelta colore per lo stream di output.
     pub color: Color,
+    /// Usa glifi solo-ASCII nei report umani.
+    pub ascii: bool,
     /// Se impostato, fa fallire la build quando i warning superano questa soglia.
     pub max_warnings: Option<usize>,
+    /// Se `true`, qualunque warning fa fallire la build (come `--max-warnings 0`).
+    pub error_on_warnings: bool,
     /// Se non vuoto, esegue solo le regole con questi id.
     pub only: Vec<String>,
+    /// Se non vuoto, esegue solo le regole di queste categorie (nomi o alias,
+    /// es. `a11y`, `seo`). In AND con `only`.
+    pub only_categories: Vec<String>,
+    /// Preset di regole da eseguire: `recommended` (default), `all`, o il nome di
+    /// una categoria (`a11y`/`seo`/…). `None` ⇒ config, poi `recommended`.
+    pub preset: Option<String>,
+    /// Esegue anche le regole "di documento" sui frammenti/partial (che di
+    /// default vengono saltate su file senza `<html>`/`<head>`/doctype).
+    pub include_fragments: bool,
     /// Percorso esplicito del file di config (`--config`).
     pub config_path: Option<PathBuf>,
+    /// Percorso esplicito di un file di baseline (`--baseline`); se `None` viene
+    /// cercato `lightship-baseline.json` nella cartella / cwd.
+    pub baseline: Option<PathBuf>,
 }
 
 impl Default for Options {
@@ -73,12 +98,28 @@ impl Default for Options {
             suggestions: true,
             format: None,
             color: Color::Auto,
+            ascii: false,
             max_warnings: None,
+            error_on_warnings: false,
             only: Vec::new(),
+            only_categories: Vec::new(),
+            preset: None,
+            include_fragments: false,
             config_path: None,
+            baseline: None,
         }
     }
 }
+
+/// Regole **non** incluse nel preset `recommended` (opt-in): valgono solo con
+/// `--preset all` o selezionandole/categoria esplicitamente. Sono regole
+/// rumorose o molto opinabili che è meglio non attivare di default.
+const NON_RECOMMENDED: &[&str] = &["img-lazy-loading"];
+
+/// Limite di default sulla dimensione di un file `.html`: oltre questa soglia lo
+/// saltiamo, per non caricare in memoria artefatti abnormi (bundle, mappe…).
+/// Sovrascrivibile con `[analyze] max_file_bytes` nel `lightship.toml`.
+pub const DEFAULT_MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
 
 /// Come [`run_with`] ma con le opzioni di default.
 pub fn run(dir: &str) -> i32 {
@@ -95,20 +136,24 @@ pub fn run_with(dir: &str, opts: &Options) -> i32 {
     // Lo spinner ha senso solo per i formati umani e quando non siamo in
     // `--quiet`; `Progress` poi lo accende solo se stderr è un terminale.
     let show_progress = !opts.quiet && matches!(format, Format::Pretty | Format::Compact);
-    let analysis = analyze_with(dir, opts, &cfg, show_progress);
+    let analysis = analyze_with(dir, opts, &cfg, show_progress, true);
 
     let ropts = RenderOpts {
         suggestions: opts.suggestions,
         verbose: opts.verbose,
         quiet: opts.quiet,
         dir: dir.to_string(),
+        ascii: opts.ascii,
+        width: report::term_width(),
     };
     print(&report::render(format, &analysis, &ropts), opts.color);
 
+    // Soglie CI: le opzioni della CLI hanno precedenza, poi la config `[ci]`.
+    let max_warnings = opts.max_warnings.or(cfg.ci_max_warnings);
+    let error_on_warnings = opts.error_on_warnings || cfg.ci_error_on_warnings;
     let fail = analysis.errors() > 0
-        || opts
-            .max_warnings
-            .is_some_and(|max| analysis.warnings() > max);
+        || (error_on_warnings && analysis.warnings() > 0)
+        || max_warnings.is_some_and(|max| analysis.warnings() > max);
     i32::from(fail)
 }
 
@@ -139,11 +184,34 @@ pub fn rule_ids() -> Vec<&'static str> {
 /// testabile del giro, senza stampare nulla.
 pub fn analyze(dir: &str) -> Analysis {
     let cfg = Config::load(dir, None);
-    analyze_with(dir, &Options::default(), &cfg, false)
+    analyze_with(dir, &Options::default(), &cfg, false, true)
+}
+
+/// Come [`analyze`] ma con opzioni esplicite (config caricata da `dir`). Utile
+/// per pilotare l'analisi da codice/test senza passare dalla CLI.
+pub fn analyze_opts(dir: &str, opts: &Options) -> Analysis {
+    let cfg = Config::load(dir, opts.config_path.as_deref());
+    analyze_with(dir, opts, &cfg, false, true)
+}
+
+/// Costruisce un baseline dai finding correnti di `dir`. Non applica un baseline
+/// eventualmente già presente: cattura lo stato **completo** attuale.
+pub fn build_baseline(dir: &str, opts: &Options) -> Baseline {
+    let cfg = Config::load(dir, opts.config_path.as_deref());
+    let analysis = analyze_with(dir, opts, &cfg, false, false);
+    Baseline::from_findings(&analysis.findings)
 }
 
 /// Cuore dell'analisi: discovery + filtri config/`--only` + lint in parallelo.
-fn analyze_with(dir: &str, opts: &Options, cfg: &Config, show_progress: bool) -> Analysis {
+/// Con `apply_baseline` sottrae i finding già noti (per non far fallire la CI su
+/// problemi preesistenti); lo disattiviamo quando *costruiamo* un baseline.
+fn analyze_with(
+    dir: &str,
+    opts: &Options,
+    cfg: &Config,
+    show_progress: bool,
+    apply_baseline: bool,
+) -> Analysis {
     let start = Instant::now();
 
     let files: Vec<PathBuf> = discover(dir)
@@ -154,31 +222,207 @@ fn analyze_with(dir: &str, opts: &Options, cfg: &Config, show_progress: bool) ->
         })
         .collect();
 
-    let rules: Vec<Box<dyn Rule>> = rules::all()
-        .into_iter()
-        .filter(|r| !cfg.is_rule_off(r.id()))
-        .filter(|r| opts.only.is_empty() || opts.only.iter().any(|o| o == r.id()))
-        .collect();
+    let rules = active_rules(opts, cfg);
+
+    // Le regole "di documento" (title/charset/viewport/h1…) vanno saltate sui
+    // frammenti, a meno che l'utente non chieda esplicitamente di includerli.
+    let include_fragments = opts.include_fragments || cfg.include_fragments;
+    let max_file_bytes = cfg.max_file_bytes.unwrap_or(DEFAULT_MAX_FILE_BYTES);
 
     let progress = progress::Progress::new(files.len(), show_progress);
-    let mut findings: Vec<Finding> = files
+    let results: Vec<LintOutcome> = files
         .par_iter()
-        .flat_map_iter(|path| {
-            let f = lint_file(path, &rules, cfg);
+        .map(|path| {
+            let r = lint_file(path, &rules, cfg, include_fragments, max_file_bytes);
             progress.tick();
-            f
+            r
         })
         .collect();
     progress.finish();
 
+    let skipped = results.iter().filter(|r| r.skipped).count();
+    let mut findings: Vec<Finding> = results.into_iter().flat_map(|r| r.findings).collect();
+
     // Ordine deterministico: prima per file, poi per regola → output raggruppato.
     findings.sort_by(|a, b| a.file.cmp(&b.file).then_with(|| a.rule.cmp(b.rule)));
 
+    // Sottrazione del baseline: i finding già noti non fanno fallire la build.
+    // Contiamo le occorrenze così che una *nuova* copia di un problema noto emerga.
+    let mut baselined = 0;
+    if apply_baseline && let Some(path) = baseline::resolve(dir, opts.baseline.as_deref()) {
+        if let Some(base) = Baseline::load(&path) {
+            let mut remaining = base.fingerprint_counts();
+            let before = findings.len();
+            findings.retain(|f| {
+                if let Some(c) = remaining.get_mut(&f.fingerprint())
+                    && *c > 0
+                {
+                    *c -= 1;
+                    return false; // coperto dal baseline
+                }
+                true
+            });
+            baselined = before - findings.len();
+        } else {
+            eprintln!("lightship: could not read baseline {}", path.display());
+        }
+    }
+
     Analysis {
-        pages: files.len(),
+        pages: files.len() - skipped,
+        skipped,
+        baselined,
         findings,
         elapsed: start.elapsed(),
     }
+}
+
+/// Esito dell'analisi di un singolo file: i finding prodotti e se il file è
+/// stato saltato (illeggibile / non parsabile / troppo grande).
+struct LintOutcome {
+    findings: Vec<Finding>,
+    skipped: bool,
+}
+
+/// `true` se il preset consente la regola `meta`. `recommended` esclude le regole
+/// opt-in ([`NON_RECOMMENDED`]); `all` le include tutte; il nome di una categoria
+/// filtra a quella categoria; un valore sconosciuto non filtra (è già segnalato
+/// altrove) per non nascondere silenziosamente tutte le regole.
+fn preset_allows(preset: &str, meta: &RuleMeta) -> bool {
+    match preset.trim().to_ascii_lowercase().as_str() {
+        "all" => true,
+        "recommended" | "" => !NON_RECOMMENDED.contains(&meta.id),
+        other => match Category::parse(other) {
+            Some(cat) => meta.category == cat,
+            None => true,
+        },
+    }
+}
+
+/// I nomi di preset validi (per la validazione lato CLI/config).
+pub fn preset_names() -> Vec<&'static str> {
+    vec![
+        "recommended",
+        "all",
+        "accessibility",
+        "seo",
+        "performance",
+        "security",
+        "correctness",
+    ]
+}
+
+/// `true` se `s` è un preset valido: `recommended`/`all` o il nome (o alias) di
+/// una categoria.
+pub fn is_valid_preset(s: &str) -> bool {
+    matches!(
+        s.trim().to_ascii_lowercase().as_str(),
+        "recommended" | "all"
+    ) || Category::parse(s).is_some()
+}
+
+/// L'insieme di regole attive per queste opzioni: applica gli off della config,
+/// il filtro `--only`, `--only-category` e il preset. Condiviso da analisi e fix.
+fn active_rules(opts: &Options, cfg: &Config) -> Vec<Box<dyn Rule>> {
+    let only_categories: Vec<Category> = opts
+        .only_categories
+        .iter()
+        .filter_map(|c| Category::parse(c))
+        .collect();
+    let preset = opts
+        .preset
+        .clone()
+        .or_else(|| cfg.preset.clone())
+        .unwrap_or_else(|| "recommended".to_string());
+    // Una selezione esplicita (per id o categoria) ha la precedenza sul preset.
+    let explicit_selection = !opts.only.is_empty() || !only_categories.is_empty();
+
+    rules::all()
+        .into_iter()
+        .filter(|r| !cfg.is_rule_off(r.id()))
+        .filter(|r| opts.only.is_empty() || opts.only.iter().any(|o| o == r.id()))
+        .filter(|r| only_categories.is_empty() || only_categories.contains(&r.meta().category))
+        .filter(|r| explicit_selection || preset_allows(&preset, &r.meta()))
+        .collect()
+}
+
+/// Raccoglie tutti i fix sicuri proponibili su `dir` (stessa discovery/filtri
+/// dell'analisi), con file e riga/colonna già agganciati e ordinati per file.
+pub fn collect_fixes(dir: &str, opts: &Options) -> Vec<Fix> {
+    let cfg = Config::load(dir, opts.config_path.as_deref());
+    let rules = active_rules(opts, &cfg);
+    let include_fragments = opts.include_fragments || cfg.include_fragments;
+    let max_file_bytes = cfg.max_file_bytes.unwrap_or(DEFAULT_MAX_FILE_BYTES);
+
+    let files: Vec<PathBuf> = discover(dir)
+        .into_iter()
+        .filter(|p| !cfg.is_ignored(p.strip_prefix(dir).unwrap_or(p)))
+        .collect();
+
+    let mut fixes: Vec<Fix> = files
+        .par_iter()
+        .flat_map_iter(|path| file_fixes(path, &rules, include_fragments, max_file_bytes))
+        .collect();
+    fixes.sort_by(|a, b| {
+        a.file
+            .cmp(&b.file)
+            .then_with(|| a.line.cmp(&b.line))
+            .then_with(|| a.column.cmp(&b.column))
+    });
+    fixes
+}
+
+/// Fix proponibili su un singolo file (rispettando il gating dei frammenti).
+fn file_fixes(
+    path: &Path,
+    rules: &[Box<dyn Rule>],
+    include_fragments: bool,
+    max_file_bytes: usize,
+) -> Vec<Fix> {
+    let Ok(bytes) = std::fs::read(path) else {
+        return Vec::new();
+    };
+    if bytes.len() > max_file_bytes {
+        return Vec::new();
+    }
+    let source = String::from_utf8_lossy(&bytes).into_owned();
+    let Ok(dom) = tl::parse(&source, tl::ParserOptions::default()) else {
+        return Vec::new();
+    };
+    let run_document = include_fragments || util::is_full_document(&dom, &source);
+
+    let shared: Arc<str> = Arc::from(source.as_str());
+    let mut out = Vec::new();
+    for rule in rules {
+        if rule.scope() == RuleScope::Document && !run_document {
+            continue;
+        }
+        for mut fix in rule.fixes(&dom, &source) {
+            fix.attach(path.to_path_buf(), shared.clone());
+            out.push(fix);
+        }
+    }
+    out
+}
+
+/// Applica gli `edit` selezionati ai rispettivi file (raggruppandoli per file) e
+/// scrive su disco. Ritorna quanti file sono stati modificati o il primo errore.
+pub fn apply_fixes(fixes: &[&Fix]) -> std::io::Result<usize> {
+    use std::collections::BTreeMap;
+    let mut by_file: BTreeMap<&Path, Vec<fix::Edit>> = BTreeMap::new();
+    for f in fixes {
+        by_file
+            .entry(f.file.as_path())
+            .or_default()
+            .push(f.edit.clone());
+    }
+    let count = by_file.len();
+    for (path, edits) in by_file {
+        let source = std::fs::read_to_string(path)?;
+        let patched = fix::apply_edits(&source, &edits);
+        std::fs::write(path, patched)?;
+    }
+    Ok(count)
 }
 
 /// Cartelle pesanti che non sono mai output di build: le potiamo *prima* di
@@ -228,17 +472,40 @@ fn discover(dir: &str) -> Vec<PathBuf> {
 }
 
 /// Parsa un file e gli applica le regole attive, agganciando `file`/`source` e
-/// applicando l'override di gravità della config.
-fn lint_file(path: &Path, rules: &[Box<dyn Rule>], cfg: &Config) -> Vec<Finding> {
-    let Ok(source) = std::fs::read_to_string(path) else {
-        eprintln!("lightship: could not read {}", path.display());
-        return Vec::new();
+/// applicando l'override di gravità della config. Ritorna anche se il file è
+/// stato saltato, così l'orchestratore può contarlo separatamente dalle pagine.
+fn lint_file(
+    path: &Path,
+    rules: &[Box<dyn Rule>],
+    cfg: &Config,
+    include_fragments: bool,
+    max_file_bytes: usize,
+) -> LintOutcome {
+    let skip = |msg: &str| {
+        eprintln!("lightship: {msg} {}", path.display());
+        LintOutcome {
+            findings: Vec::new(),
+            skipped: true,
+        }
     };
 
-    let Ok(dom) = tl::parse(&source, tl::ParserOptions::default()) else {
-        eprintln!("lightship: could not parse {}", path.display());
-        return Vec::new();
+    let Ok(bytes) = std::fs::read(path) else {
+        return skip("could not read");
     };
+    if bytes.len() > max_file_bytes {
+        return skip("skipping file larger than the size limit:");
+    }
+    // Lettura tollerante: i file di build possono avere byte non-UTF-8 (es.
+    // contenuti latin-1); li sostituiamo invece di saltare l'intero file.
+    let source = String::from_utf8_lossy(&bytes).into_owned();
+
+    let Ok(dom) = tl::parse(&source, tl::ParserOptions::default()) else {
+        return skip("could not parse");
+    };
+
+    // Su un frammento (niente `<html>`/`<head>`/doctype) le regole "di documento"
+    // darebbero falsi positivi, quindi le saltiamo salvo richiesta esplicita.
+    let run_document_rules = include_fragments || util::is_full_document(&dom, &source);
 
     // Sorgente condiviso fra tutti i finding del file: gli span vi puntano.
     let shared: Arc<str> = Arc::from(source.as_str());
@@ -247,13 +514,19 @@ fn lint_file(path: &Path, rules: &[Box<dyn Rule>], cfg: &Config) -> Vec<Finding>
     let index = finding::LineIndex::new(&source);
     let mut out = Vec::new();
     for rule in rules {
+        if rule.scope() == RuleScope::Document && !run_document_rules {
+            continue;
+        }
         for mut finding in rule.check(&dom, &source) {
             finding.severity = cfg.severity_for(finding.rule, finding.severity);
             finding.attach_with(path.to_path_buf(), shared.clone(), &index);
             out.push(finding);
         }
     }
-    out
+    LintOutcome {
+        findings: out,
+        skipped: false,
+    }
 }
 
 #[cfg(test)]

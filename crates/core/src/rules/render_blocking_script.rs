@@ -1,6 +1,6 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
-use crate::rule::Rule;
+use crate::meta::{Category, RuleMeta};
+use crate::rule::{Rule, RuleScope};
 use crate::util::{attr, has_attr, opening_tag_span};
 use tl::{HTMLTag, VDom};
 
@@ -14,10 +14,15 @@ impl Rule for RenderBlockingScript {
         "render-blocking-script"
     }
 
+    fn scope(&self) -> RuleScope {
+        RuleScope::Document
+    }
+
     fn meta(&self) -> RuleMeta {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
+            category: Category::Performance,
             summary: "No render-blocking <script> in <head>",
             help: "Add defer (or type=\"module\") to head scripts, or move them before </body>.",
             example_bad: r#"<head><script src="app.js"></script></head>"#,
@@ -90,14 +95,15 @@ mod tests {
 
     #[test]
     fn classico_in_head_warn() {
-        assert_eq!(check(r#"<head><script src="a.js"></script></head>"#).len(), 1);
+        assert_eq!(
+            check(r#"<head><script src="a.js"></script></head>"#).len(),
+            1
+        );
     }
 
     #[test]
     fn script_nel_body_ignorato() {
-        assert!(
-            check(r#"<head></head><body><script src="a.js"></script></body>"#).is_empty()
-        );
+        assert!(check(r#"<head></head><body><script src="a.js"></script></body>"#).is_empty());
     }
 
     #[test]

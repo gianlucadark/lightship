@@ -1,5 +1,49 @@
 use std::borrow::Cow;
-use tl::{HTMLTag, Parser};
+use std::collections::HashSet;
+use tl::{HTMLTag, Parser, VDom};
+
+/// Insieme degli `id` (non vuoti) presenti nel documento. Usato dalle regole che
+/// devono risolvere riferimenti (`label[for]`, `aria-labelledby`…).
+pub fn collect_ids(dom: &VDom<'_>, parser: &Parser<'_>) -> HashSet<String> {
+    let mut ids = HashSet::new();
+    if let Some(els) = dom.query_selector("[id]") {
+        for tag in els.filter_map(|h| h.get(parser)?.as_tag()) {
+            if let Some(id) = attr(tag, "id") {
+                let id = id.trim();
+                if !id.is_empty() {
+                    ids.insert(id.to_string());
+                }
+            }
+        }
+    }
+    ids
+}
+
+/// Vero se il sorgente rappresenta una **pagina HTML completa** e non un semplice
+/// frammento/partial. Consideriamo pagina qualunque file che dichiari un doctype
+/// oppure contenga un elemento `<html>` o `<head>`: i componenti, i template
+/// email o i pezzi renderizzati da htmx/Turbo non ne hanno, quindi le regole
+/// "di documento" (title/charset/viewport/h1…) non devono scattarci sopra.
+pub fn is_full_document(dom: &VDom<'_>, src: &str) -> bool {
+    dom.query_selector("html")
+        .and_then(|mut it| it.next())
+        .is_some()
+        || dom
+            .query_selector("head")
+            .and_then(|mut it| it.next())
+            .is_some()
+        || has_doctype(src)
+}
+
+/// Vero se il sorgente inizia (dopo eventuali spazi/BOM) con `<!doctype …`.
+fn has_doctype(src: &str) -> bool {
+    let s = src.trim_start_matches('\u{feff}').trim_start();
+    s.len() >= 2
+        && s.as_bytes()[0] == b'<'
+        && s.as_bytes()[1] == b'!'
+        && s.get(2..9)
+            .is_some_and(|k| k.eq_ignore_ascii_case("doctype"))
+}
 
 /// Cerca un attributo per nome con confronto **case-insensitive**.
 ///
@@ -79,6 +123,32 @@ fn open_tag_len(src: &str, start: usize) -> usize {
     bytes.len() - start
 }
 
+/// Offset in byte subito dopo il tag di apertura `<head …>`, se presente. Usato
+/// dai fix che inseriscono un elemento come primo figlio della `<head>`.
+pub fn head_open_end(dom: &VDom<'_>, parser: &Parser<'_>, src: &str) -> Option<usize> {
+    let head = dom
+        .query_selector("head")
+        .and_then(|mut it| it.next())?
+        .get(parser)?
+        .as_tag()?;
+    let (start, len) = opening_tag_span(head, parser, src);
+    Some(start + len)
+}
+
+/// Offset in byte dove inserire un nuovo attributo (` name="v"`) nel tag di
+/// apertura con span `(start, len)`: subito prima del `>` finale, oppure prima
+/// del `/` se il tag è self-closing (`<img … />`).
+pub fn attr_insert_pos(src: &str, span: (usize, usize)) -> usize {
+    let (start, len) = span;
+    let gt = start + len - 1; // posizione del '>'
+    let bytes = src.as_bytes();
+    if gt > start && bytes[gt - 1] == b'/' {
+        gt - 1
+    } else {
+        gt
+    }
+}
+
 /// Vero se un elemento interattivo ha un "nome accessibile": testo visibile,
 /// `aria-label`, `title`, oppure un'immagine discendente con `alt` non vuoto.
 pub fn has_accessible_name(tag: &HTMLTag<'_>, parser: &Parser<'_>) -> bool {
@@ -93,4 +163,35 @@ pub fn has_accessible_name(tag: &HTMLTag<'_>, parser: &Parser<'_>) -> bool {
             t.name().as_bytes().eq_ignore_ascii_case(b"img") && attr_non_empty(t, "alt")
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn full_doc(src: &str) -> bool {
+        let dom = tl::parse(src, tl::ParserOptions::default()).unwrap();
+        is_full_document(&dom, src)
+    }
+
+    #[test]
+    fn pagina_con_html_e_documento() {
+        assert!(full_doc("<html><body><p>x</p></body></html>"));
+    }
+
+    #[test]
+    fn solo_head_e_documento() {
+        assert!(full_doc("<head><title>x</title></head>"));
+    }
+
+    #[test]
+    fn doctype_e_documento() {
+        assert!(full_doc("<!DOCTYPE html>\n<body>ciao</body>"));
+    }
+
+    #[test]
+    fn frammento_non_e_documento() {
+        assert!(!full_doc(r#"<div class="card"><img src="a.png"></div>"#));
+        assert!(!full_doc("<li>voce</li>"));
+    }
 }

@@ -1,7 +1,8 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
+use crate::fix::{Edit, Fix};
+use crate::meta::{Category, RuleMeta};
 use crate::rule::Rule;
-use crate::util::{attr, opening_tag_span};
+use crate::util::{attr, attr_insert_pos, opening_tag_span};
 use tl::{HTMLTag, VDom};
 
 /// Un `<a target="_blank">` dovrebbe avere `rel="noopener"` (o `noreferrer`): la
@@ -18,6 +19,7 @@ impl Rule for LinkTargetBlank {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
+            category: Category::Security,
             summary: "<a target=\"_blank\"> sets rel=\"noopener\"",
             help: "Add rel=\"noopener\" (or noreferrer) to target=\"_blank\" links.",
             example_bad: r#"<a href="https://x.com" target="_blank">x</a>"#,
@@ -45,13 +47,36 @@ impl Rule for LinkTargetBlank {
             })
             .collect()
     }
+
+    fn fixes(&self, dom: &VDom<'_>, src: &str) -> Vec<Fix> {
+        let parser = dom.parser();
+        let Some(links) = dom.query_selector("a") else {
+            return Vec::new();
+        };
+        links
+            .filter_map(|h| h.get(parser)?.as_tag())
+            .filter(|t| attr(t, "target").is_some_and(|v| v.trim().eq_ignore_ascii_case("_blank")))
+            .filter(|t| !has_safe_rel(t))
+            .map(|tag| {
+                let span = opening_tag_span(tag, parser, src);
+                let at = attr_insert_pos(src, span);
+                Fix::new(
+                    self.id(),
+                    "add rel=\"noopener\" to this target=\"_blank\" link",
+                    "rel=\"noopener\"",
+                    Edit::insert(at, " rel=\"noopener\""),
+                )
+            })
+            .collect()
+    }
 }
 
 /// Vero se `rel` contiene il token `noopener` o `noreferrer` (case-insensitive).
 fn has_safe_rel(tag: &HTMLTag<'_>) -> bool {
     attr(tag, "rel").is_some_and(|rel| {
-        rel.split_whitespace()
-            .any(|tok| tok.eq_ignore_ascii_case("noopener") || tok.eq_ignore_ascii_case("noreferrer"))
+        rel.split_whitespace().any(|tok| {
+            tok.eq_ignore_ascii_case("noopener") || tok.eq_ignore_ascii_case("noreferrer")
+        })
     })
 }
 

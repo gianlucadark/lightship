@@ -123,6 +123,28 @@ impl Finding {
         Some((line, col))
     }
 
+    /// Riga/colonna 1-based di **fine** dello span, con colonna *esclusiva* (stile
+    /// SARIF: punta subito dopo l'ultimo carattere). `None` senza span.
+    pub fn end_location(&self) -> Option<(usize, usize)> {
+        let (line, col) = (self.line?, self.column?);
+        let snippet = self.snippet()?;
+        match snippet.rfind('\n') {
+            None => Some((line, col + snippet.chars().count())),
+            Some(idx) => {
+                let newlines = snippet.bytes().filter(|&b| b == b'\n').count();
+                Some((line + newlines, snippet[idx + 1..].chars().count() + 1))
+            }
+        }
+    }
+
+    /// Chiave stabile del finding, indipendente da riga/colonna, così un baseline
+    /// regge lo spostamento del codice. Deriva da regola + file + messaggio; il
+    /// path è normalizzato a `/` per essere uguale su Windows e Unix.
+    pub fn fingerprint(&self) -> String {
+        let file = self.file.display().to_string().replace('\\', "/");
+        fingerprint_of(self.rule, &file, &self.message)
+    }
+
     /// Aggancia file e sorgente (chiamato dall'orchestratore) e calcola la
     /// posizione riga/colonna così che resti nel finding anche dopo il drop
     /// del DOM.
@@ -147,6 +169,18 @@ impl Finding {
             self.column = Some(col);
         }
     }
+}
+
+/// Calcola il fingerprint da regola/file/messaggio già in forma di stringa, così
+/// da poterlo ricostruire da un file di baseline senza il `Finding` originale.
+/// Usa `DefaultHasher` (chiavi fisse ⇒ deterministico entro la stessa versione).
+pub fn fingerprint_of(rule: &str, file: &str, message: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    rule.hash(&mut h);
+    file.hash(&mut h);
+    message.hash(&mut h);
+    format!("{:016x}", h.finish())
 }
 
 #[cfg(test)]

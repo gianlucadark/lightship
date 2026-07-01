@@ -55,6 +55,56 @@ enum Command {
         /// Build output folder to lint in CI (default: auto-detected).
         dir: Option<String>,
     },
+
+    /// Freeze current findings into a baseline so CI fails only on new issues.
+    Baseline(AnalyzeArgs),
+
+    /// Interactively apply safe automatic fixes (choose which, or all).
+    Fix(FixArgs),
+}
+
+#[derive(Args)]
+struct FixArgs {
+    /// Folder to fix (default: auto-detected build output).
+    dir: Option<String>,
+
+    /// Apply every proposed fix without prompting.
+    #[arg(short, long)]
+    all: bool,
+
+    /// Show what would change without writing any file.
+    #[arg(long = "dry-run")]
+    dry_run: bool,
+
+    /// Only propose fixes for these rules (comma-separated).
+    #[arg(long, value_delimiter = ',', value_name = "RULES")]
+    only: Vec<String>,
+
+    /// Also fix document-level rules on HTML fragments/partials.
+    #[arg(long = "include-fragments")]
+    include_fragments: bool,
+
+    /// Disable ANSI colors.
+    #[arg(long = "no-color")]
+    no_color: bool,
+
+    /// Explicit path to the config file.
+    #[arg(long, value_name = "PATH")]
+    config: Option<PathBuf>,
+}
+
+impl FixArgs {
+    fn to_options(&self) -> Options {
+        Options {
+            // Il fix è un'azione esplicita: considera tutte le regole fixabili
+            // (incluse le opt-in), poi l'utente sceglie quali applicare.
+            preset: Some("all".to_string()),
+            only: self.only.clone(),
+            include_fragments: self.include_fragments,
+            config_path: self.config.clone(),
+            ..Options::default()
+        }
+    }
 }
 
 #[derive(Args)]
@@ -74,9 +124,17 @@ struct AnalyzeArgs {
     #[arg(long, value_enum)]
     format: Option<FormatArg>,
 
-    /// Disable ANSI colors.
+    /// When to use ANSI colors.
+    #[arg(long, value_enum, value_name = "WHEN")]
+    color: Option<ColorArg>,
+
+    /// Disable ANSI colors (alias for --color never).
     #[arg(long = "no-color")]
     no_color: bool,
+
+    /// Use ASCII-only glyphs (no box-drawing / unicode markers).
+    #[arg(long)]
+    ascii: bool,
 
     /// Hide the 💡 fix suggestion line.
     #[arg(long = "no-suggestions")]
@@ -86,13 +144,40 @@ struct AnalyzeArgs {
     #[arg(long = "max-warnings", value_name = "N")]
     max_warnings: Option<usize>,
 
+    /// Fail the build on any warning (like --max-warnings 0).
+    #[arg(long = "error-on-warnings")]
+    error_on_warnings: bool,
+
     /// Run only these rules (comma-separated).
     #[arg(long, value_delimiter = ',', value_name = "RULES")]
     only: Vec<String>,
 
+    /// Run only rules in these categories (comma-separated): accessibility (a11y),
+    /// seo, performance, security, correctness.
+    #[arg(
+        long = "only-category",
+        value_delimiter = ',',
+        value_name = "CATEGORIES"
+    )]
+    only_category: Vec<String>,
+
+    /// Rule set to run: recommended (default), all, or a category name.
+    #[arg(long, value_name = "PRESET")]
+    preset: Option<String>,
+
+    /// Also run document-level rules (title, charset, viewport, single-h1...)
+    /// on HTML fragments/partials that have no <html>/<head>.
+    #[arg(long = "include-fragments")]
+    include_fragments: bool,
+
     /// Explicit path to the config file.
     #[arg(long, value_name = "PATH")]
     config: Option<PathBuf>,
+
+    /// Suppress findings listed in this baseline file (default: auto-detected
+    /// lightship-baseline.json). Only new issues fail the build.
+    #[arg(long, value_name = "PATH")]
+    baseline: Option<PathBuf>,
 
     /// Re-analyze automatically when files change (Ctrl-C to quit).
     #[arg(long)]
@@ -106,6 +191,23 @@ enum FormatArg {
     Json,
     Sarif,
     Github,
+}
+
+#[derive(Copy, Clone, ValueEnum)]
+enum ColorArg {
+    Auto,
+    Always,
+    Never,
+}
+
+impl From<ColorArg> for Color {
+    fn from(c: ColorArg) -> Self {
+        match c {
+            ColorArg::Auto => Color::Auto,
+            ColorArg::Always => Color::Always,
+            ColorArg::Never => Color::Never,
+        }
+    }
 }
 
 impl From<FormatArg> for Format {
@@ -127,14 +229,21 @@ impl AnalyzeArgs {
             verbose: self.verbose,
             suggestions: !self.no_suggestions,
             format: self.format.map(Format::from),
+            // Priorità: --no-color (esplicito spegnimento) > --color > default Auto.
             color: if self.no_color {
                 Color::Never
             } else {
-                Color::Auto
+                self.color.map(Color::from).unwrap_or(Color::Auto)
             },
+            ascii: self.ascii,
             max_warnings: self.max_warnings,
+            error_on_warnings: self.error_on_warnings,
             only: self.only.clone(),
+            only_categories: self.only_category.clone(),
+            preset: self.preset.clone(),
+            include_fragments: self.include_fragments,
             config_path: self.config.clone(),
+            baseline: self.baseline.clone(),
         }
     }
 }
@@ -151,10 +260,22 @@ fn main() -> ExitCode {
         Some(Command::Explain { rule }) => explain(&rule),
         Some(Command::Init { dir }) => init(&dir),
         Some(Command::Ci { dir }) => ci(dir.as_deref()),
+        Some(Command::Baseline(a)) => baseline(&a),
+        Some(Command::Fix(a)) => fix(&a),
     }
 }
 
 fn run_analyze(a: &AnalyzeArgs) -> ExitCode {
+    if let Some(p) = &a.preset
+        && !lightship_core::is_valid_preset(p)
+    {
+        eprintln!(
+            "lightship: unknown preset '{p}'.\nAvailable presets: {}",
+            lightship_core::preset_names().join(", ")
+        );
+        return ExitCode::FAILURE;
+    }
+
     let opts = a.to_options();
 
     // Senza cartella esplicita proviamo a rilevare la cartella di build, così
@@ -292,6 +413,139 @@ fn ci(dir_arg: Option<&str>) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Costruisce e scrive il file di baseline con i finding correnti.
+fn baseline(a: &AnalyzeArgs) -> ExitCode {
+    let opts = a.to_options();
+    let dir = match &a.dir {
+        Some(d) => d.clone(),
+        None => match resolve_auto_dir() {
+            Some(d) => d,
+            None => return ExitCode::FAILURE,
+        },
+    };
+
+    let base = lightship_core::build_baseline(&dir, &opts);
+    let count = base.entries.len();
+    let path = a
+        .baseline
+        .clone()
+        .unwrap_or_else(|| Path::new(&dir).join(lightship_core::BASELINE_FILE));
+
+    match std::fs::write(&path, base.to_json()) {
+        Ok(()) => {
+            println!(
+                "Wrote {} with {count} baselined {}.",
+                path.display(),
+                if count == 1 { "issue" } else { "issues" }
+            );
+            println!("Future runs will only fail on new issues.");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("lightship: could not write {}: {e}", path.display());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Applica i fix automatici sicuri, in modo interattivo (o tutti con `--all`).
+fn fix(a: &FixArgs) -> ExitCode {
+    use std::io::Write;
+
+    let color = if a.no_color {
+        Color::Never
+    } else {
+        Color::Auto
+    };
+    let opts = a.to_options();
+    let dir = match &a.dir {
+        Some(d) => d.clone(),
+        None => match resolve_auto_dir() {
+            Some(d) => d,
+            None => return ExitCode::FAILURE,
+        },
+    };
+
+    let fixes = lightship_core::collect_fixes(&dir, &opts);
+    if fixes.is_empty() {
+        println!("Nothing to auto-fix. ✓");
+        return ExitCode::SUCCESS;
+    }
+
+    // Lista numerata, con posizione, regola, cosa fa e anteprima della modifica.
+    lightship_core::print(&render_fix_list(&fixes), color);
+
+    // Selezione: tutti con --all o --dry-run (anteprima completa), altrimenti
+    // chiediamo su stdin quali applicare.
+    let selected: Vec<usize> = if a.all || a.dry_run {
+        (0..fixes.len()).collect()
+    } else {
+        print!("\nSelect fixes to apply [e.g. 1,3 or 2-4 · 'a' all · 'q' quit]: ");
+        let _ = std::io::stdout().flush();
+        let mut line = String::new();
+        if std::io::stdin().read_line(&mut line).is_err() {
+            eprintln!("lightship: could not read input");
+            return ExitCode::FAILURE;
+        }
+        match lightship_core::parse_selection(&line, fixes.len()) {
+            Some(sel) => sel,
+            None => {
+                println!("No changes made.");
+                return ExitCode::SUCCESS;
+            }
+        }
+    };
+
+    let chosen: Vec<&lightship_core::Fix> = selected.iter().map(|&i| &fixes[i]).collect();
+
+    if a.dry_run {
+        let mut files: Vec<String> = chosen
+            .iter()
+            .map(|f| f.file.display().to_string())
+            .collect();
+        files.sort();
+        files.dedup();
+        println!(
+            "\nDry run: {} fix(es) would be applied across {} file(s):",
+            chosen.len(),
+            files.len()
+        );
+        for f in files {
+            println!("  {f}");
+        }
+        return ExitCode::SUCCESS;
+    }
+
+    match lightship_core::apply_fixes(&chosen) {
+        Ok(files) => {
+            println!("\nApplied {} fix(es) across {files} file(s).", chosen.len());
+            println!("Re-run `lightship {dir}` to verify.");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("lightship: could not apply fixes: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Renderizza la lista numerata dei fix proposti.
+fn render_fix_list(fixes: &[lightship_core::Fix]) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    let _ = writeln!(out, "\n{} auto-fixable issue(s):\n", fixes.len());
+    for (i, f) in fixes.iter().enumerate() {
+        let loc = match (f.line, f.column) {
+            (Some(l), Some(c)) => format!("{}:{l}:{c}", f.file.display()),
+            _ => f.file.display().to_string(),
+        };
+        let _ = writeln!(out, "  [{}] {}  ({})", i + 1, f.message, f.rule);
+        let _ = writeln!(out, "       {loc}");
+        let _ = writeln!(out, "       → insert: {}", f.preview);
+    }
+    out
 }
 
 /// Ri-analizza a ogni cambiamento dei file sotto `dir`, fino a Ctrl-C.

@@ -1,6 +1,6 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
-use crate::rule::Rule;
+use crate::meta::{Category, RuleMeta};
+use crate::rule::{Rule, RuleScope};
 use crate::util::{attr, attr_non_empty, opening_tag_span};
 use tl::VDom;
 
@@ -13,10 +13,15 @@ impl Rule for MetaDescription {
         "meta-description"
     }
 
+    fn scope(&self) -> RuleScope {
+        RuleScope::Document
+    }
+
     fn meta(&self) -> RuleMeta {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
+            category: Category::Seo,
             summary: "<meta name=\"description\"> with non-empty content is present",
             help: "Add a 50–160 character description: <meta name=\"description\" content=\"…\">.",
             example_bad: r#"<meta name="description" content="">"#,

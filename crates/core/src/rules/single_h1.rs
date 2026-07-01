@@ -1,6 +1,6 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
-use crate::rule::Rule;
+use crate::meta::{Category, RuleMeta};
+use crate::rule::{Rule, RuleScope};
 use crate::util::opening_tag_span;
 use tl::VDom;
 
@@ -13,10 +13,15 @@ impl Rule for SingleH1 {
         "single-h1"
     }
 
+    fn scope(&self) -> RuleScope {
+        RuleScope::Document
+    }
+
     fn meta(&self) -> RuleMeta {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
+            category: Category::Seo,
             summary: "The page has exactly one <h1>",
             help: "Use a single <h1> as the page's main heading; demote the others to <h2>…<h6>.",
             example_bad: "<h1>Acme</h1><h1>Welcome</h1>",

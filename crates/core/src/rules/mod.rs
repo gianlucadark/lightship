@@ -1,19 +1,27 @@
 mod a_no_text;
+mod aria_ref_target;
 mod button_name;
 mod canonical_link;
 mod duplicate_id;
+mod duplicate_meta;
+mod heading_order;
 mod html_lang;
 mod iframe_title;
 mod img_alt;
 mod img_dimensions;
+mod img_lazy_loading;
 mod label_control;
+mod label_for_target;
+mod lang_valid;
 mod link_target_blank;
 mod meta_charset;
 mod meta_description;
 mod meta_description_length;
 mod meta_viewport;
+mod positive_tabindex;
 mod render_blocking_script;
 mod single_h1;
+mod table_headers;
 mod title_length;
 mod title_present;
 
@@ -35,7 +43,13 @@ pub fn all() -> Vec<Box<dyn Rule>> {
         Box::new(a_no_text::ANoText),
         Box::new(button_name::ButtonName),
         Box::new(label_control::LabelControl),
+        Box::new(label_for_target::LabelForTarget),
+        Box::new(aria_ref_target::AriaRefTarget),
         Box::new(iframe_title::IframeTitle),
+        Box::new(heading_order::HeadingOrder),
+        Box::new(positive_tabindex::PositiveTabindex),
+        Box::new(table_headers::TableHeaders),
+        Box::new(lang_valid::LangValid),
         // Warn — SEO
         Box::new(meta_charset::MetaCharset),
         Box::new(meta_viewport::MetaViewport),
@@ -44,10 +58,13 @@ pub fn all() -> Vec<Box<dyn Rule>> {
         Box::new(title_length::TitleLength),
         Box::new(single_h1::SingleH1),
         Box::new(canonical_link::CanonicalLink),
+        Box::new(duplicate_meta::DuplicateMeta),
         // Warn — performance / sicurezza
         Box::new(img_dimensions::ImgDimensions),
         Box::new(render_blocking_script::RenderBlockingScript),
         Box::new(link_target_blank::LinkTargetBlank),
+        // Opt-in (fuori dal preset `recommended`)
+        Box::new(img_lazy_loading::ImgLazyLoading),
     ]
 }
 

@@ -1,6 +1,6 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
-use crate::rule::Rule;
+use crate::meta::{Category, RuleMeta};
+use crate::rule::{Rule, RuleScope};
 use crate::util::opening_tag_span;
 use tl::VDom;
 
@@ -17,10 +17,15 @@ impl Rule for TitleLength {
         "title-length"
     }
 
+    fn scope(&self) -> RuleScope {
+        RuleScope::Document
+    }
+
     fn meta(&self) -> RuleMeta {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
+            category: Category::Seo,
             summary: "The <title> is at most ~60 characters",
             help: "Keep the <title> under ~60 characters so it isn't truncated in search results.",
             example_bad: "<title>The complete and exhaustive guide to absolutely everything we sell</title>",

@@ -35,6 +35,16 @@ pub struct Config {
     ignore: Option<GlobSet>,
     /// Formato di output di default (sovrascrivibile da `--format`).
     pub format: Option<Format>,
+    /// Esegue le regole "di documento" anche sui frammenti/partial.
+    pub include_fragments: bool,
+    /// Dimensione massima (byte) di un file analizzato; oltre viene saltato.
+    pub max_file_bytes: Option<usize>,
+    /// Preset di regole di default (`recommended`/`all`/categoria).
+    pub preset: Option<String>,
+    /// Soglia CI di warning di default (sovrascrivibile da `--max-warnings`).
+    pub ci_max_warnings: Option<usize>,
+    /// Se `true`, in CI qualunque warning fa fallire la build.
+    pub ci_error_on_warnings: bool,
 }
 
 impl Config {
@@ -96,6 +106,11 @@ impl Config {
             overrides,
             ignore,
             format,
+            include_fragments: raw.analyze.include_fragments,
+            max_file_bytes: raw.analyze.max_file_bytes,
+            preset: raw.analyze.preset,
+            ci_max_warnings: raw.ci.max_warnings,
+            ci_error_on_warnings: raw.ci.error_on_warnings,
         })
     }
 
@@ -130,6 +145,28 @@ struct Raw {
     ignore: RawIgnore,
     #[serde(default)]
     output: RawOutput,
+    #[serde(default)]
+    analyze: RawAnalyze,
+    #[serde(default)]
+    ci: RawCi,
+}
+
+#[derive(Deserialize, Default)]
+struct RawCi {
+    #[serde(default)]
+    max_warnings: Option<usize>,
+    #[serde(default)]
+    error_on_warnings: bool,
+}
+
+#[derive(Deserialize, Default)]
+struct RawAnalyze {
+    #[serde(default)]
+    include_fragments: bool,
+    #[serde(default)]
+    max_file_bytes: Option<usize>,
+    #[serde(default)]
+    preset: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -158,6 +195,13 @@ paths = [
     # "**/404.html",
     # "**/_*.html",
 ]
+
+[analyze]
+# Document-level rules (title, charset, viewport, single-h1...) are skipped on
+# HTML fragments/partials without <html>/<head>. Set to true to run them anyway.
+# include_fragments = false
+# Skip files larger than this many bytes (default 8 MiB).
+# max_file_bytes = 8388608
 
 [output]
 # Default output format: pretty | compact | json | sarif | github
@@ -225,5 +269,17 @@ mod tests {
     #[test]
     fn valore_sconosciuto_errore() {
         assert!(Config::parse("[rules]\nimg-alt = \"boh\"\n").is_err());
+    }
+
+    #[test]
+    fn sezione_analyze() {
+        let cfg =
+            Config::parse("[analyze]\ninclude_fragments = true\nmax_file_bytes = 1024\n").unwrap();
+        assert!(cfg.include_fragments);
+        assert_eq!(cfg.max_file_bytes, Some(1024));
+        // assente ⇒ default
+        let cfg = Config::parse("").unwrap();
+        assert!(!cfg.include_fragments);
+        assert_eq!(cfg.max_file_bytes, None);
     }
 }

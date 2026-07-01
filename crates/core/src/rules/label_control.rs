@@ -1,5 +1,5 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
+use crate::meta::{Category, RuleMeta};
 use crate::rule::Rule;
 use crate::util::{attr, attr_non_empty, has_attr, opening_tag_span};
 use std::collections::HashSet;
@@ -13,8 +13,7 @@ pub struct LabelControl;
 
 /// Tipi di `<input>` che non richiedono un'etichetta esplicita: `hidden` non è
 /// visibile; i bottoni ricavano il nome da `value`/`alt`.
-const INPUT_TYPES_WITHOUT_LABEL: &[&str] =
-    &["hidden", "submit", "button", "reset", "image"];
+const INPUT_TYPES_WITHOUT_LABEL: &[&str] = &["hidden", "submit", "button", "reset", "image"];
 
 impl Rule for LabelControl {
     fn id(&self) -> &'static str {
@@ -25,6 +24,7 @@ impl Rule for LabelControl {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
+            category: Category::Accessibility,
             summary: "Every form control has an associated label",
             help: "Associate a <label for>, wrap the control in a <label>, or add an aria-label.",
             example_bad: r#"<input type="email" name="email">"#,
@@ -98,7 +98,8 @@ fn needs_label(tag: &HTMLTag<'_>) -> bool {
     if !tag.name().as_bytes().eq_ignore_ascii_case(b"input") {
         return true; // select / textarea
     }
-    let ty = attr(tag, "type").map_or_else(|| "text".to_string(), |v| v.trim().to_ascii_lowercase());
+    let ty =
+        attr(tag, "type").map_or_else(|| "text".to_string(), |v| v.trim().to_ascii_lowercase());
     !INPUT_TYPES_WITHOUT_LABEL.contains(&ty.as_str())
 }
 
@@ -132,9 +133,7 @@ mod tests {
 
     #[test]
     fn label_for_ok() {
-        assert!(
-            check(r#"<label for="e">Email</label><input id="e" type="email">"#).is_empty()
-        );
+        assert!(check(r#"<label for="e">Email</label><input id="e" type="email">"#).is_empty());
     }
 
     #[test]

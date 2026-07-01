@@ -1,6 +1,6 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
-use crate::rule::Rule;
+use crate::meta::{Category, RuleMeta};
+use crate::rule::{Rule, RuleScope};
 use crate::util::{attr, attr_non_empty, opening_tag_span};
 use tl::VDom;
 
@@ -15,10 +15,15 @@ impl Rule for CanonicalLink {
         "canonical-link"
     }
 
+    fn scope(&self) -> RuleScope {
+        RuleScope::Document
+    }
+
     fn meta(&self) -> RuleMeta {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
+            category: Category::Seo,
             summary: "At most one <link rel=\"canonical\"> with a non-empty href",
             help: "Keep a single canonical link with an absolute href; remove duplicates.",
             example_bad: r#"<link rel="canonical" href=""><link rel="canonical" href="/a">"#,

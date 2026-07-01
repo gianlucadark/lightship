@@ -1,8 +1,13 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
-use crate::rule::Rule;
-use crate::util::attr;
+use crate::fix::{Edit, Fix};
+use crate::meta::{Category, RuleMeta};
+use crate::rule::{Rule, RuleScope};
+use crate::util::{attr, head_open_end};
 use tl::VDom;
+
+/// Il tag viewport inserito dall'autofix.
+const VIEWPORT_TAG: &str =
+    r#"<meta name="viewport" content="width=device-width, initial-scale=1">"#;
 
 /// Senza `<meta name="viewport">` la pagina non è responsive sul mobile.
 pub struct MetaViewport;
@@ -12,10 +17,15 @@ impl Rule for MetaViewport {
         "meta-viewport"
     }
 
+    fn scope(&self) -> RuleScope {
+        RuleScope::Document
+    }
+
     fn meta(&self) -> RuleMeta {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
+            category: Category::Seo,
             summary: "<meta name=\"viewport\"> is present",
             help: "Add <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> for responsive pages.",
             example_bad: "<head><meta charset=\"utf-8\"></head>",
@@ -42,6 +52,30 @@ impl Rule for MetaViewport {
             Severity::Warn,
             "missing <meta name=\"viewport\"> (page is not responsive)",
             None,
+        )]
+    }
+
+    fn fixes(&self, dom: &VDom<'_>, src: &str) -> Vec<Fix> {
+        let parser = dom.parser();
+        let present = dom.query_selector("meta").is_some_and(|mut it| {
+            it.any(|h| {
+                h.get(parser)
+                    .and_then(|n| n.as_tag())
+                    .and_then(|t| attr(t, "name"))
+                    .is_some_and(|v| v.trim().eq_ignore_ascii_case("viewport"))
+            })
+        });
+        if present {
+            return Vec::new();
+        }
+        let Some(at) = head_open_end(dom, parser, src) else {
+            return Vec::new();
+        };
+        vec![Fix::new(
+            self.id(),
+            "insert a responsive <meta name=\"viewport\"> in <head>",
+            VIEWPORT_TAG,
+            Edit::insert(at, VIEWPORT_TAG),
         )]
     }
 }

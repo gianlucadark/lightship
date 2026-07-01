@@ -8,6 +8,7 @@ use std::fmt::Write;
 /// Output compatto: una riga per finding, raggruppati per file. Denso e
 /// facile da grep-pare nei log di CI.
 pub fn render(analysis: &Analysis, opts: &RenderOpts) -> String {
+    let g = opts.glyphs();
     let metas = rules::registry();
     let mut out = String::new();
 
@@ -24,7 +25,7 @@ pub fn render(analysis: &Analysis, opts: &RenderOpts) -> String {
 
             let _ = writeln!(out, "{}", file.display().to_string().underline());
             for f in &group {
-                render_finding(&mut out, f, &metas, opts);
+                render_finding(&mut out, f, &metas, opts, &g);
             }
         }
         if !findings.is_empty() {
@@ -35,12 +36,12 @@ pub fn render(analysis: &Analysis, opts: &RenderOpts) -> String {
     // Riga di riepilogo finale.
     let (errors, warns) = (analysis.errors(), analysis.warnings());
     let verdict = if errors > 0 {
-        format!("✖ {errors} error, {warns} warn")
+        format!("{} {errors} error, {warns} warn", g.cross)
             .red()
             .bold()
             .to_string()
     } else {
-        format!("✔ {errors} error, {warns} warn")
+        format!("{} {errors} error, {warns} warn", g.check)
             .green()
             .bold()
             .to_string()
@@ -60,10 +61,11 @@ fn render_finding(
     f: &Finding,
     metas: &[crate::meta::RuleMeta],
     opts: &RenderOpts,
+    g: &crate::report::Glyphs,
 ) {
     let badge = match f.severity {
-        Severity::Error => "✖".red().to_string(),
-        Severity::Warn => "⚠".yellow().to_string(),
+        Severity::Error => g.cross.red().to_string(),
+        Severity::Warn => g.warn.yellow().to_string(),
     };
     let loc = match (f.line, f.column) {
         (Some(l), Some(c)) => format!("{l}:{c}"),
@@ -77,9 +79,9 @@ fn render_finding(
         format!("{loc:<7}").dimmed(),
         f.message
     );
-    if opts.suggestions {
-        if let Some(meta) = find_meta(metas, f.rule) {
-            let _ = writeln!(out, "      💡 {}", meta.help.dimmed());
-        }
+    if opts.suggestions
+        && let Some(meta) = find_meta(metas, f.rule)
+    {
+        let _ = writeln!(out, "      💡 {}", meta.help.dimmed());
     }
 }

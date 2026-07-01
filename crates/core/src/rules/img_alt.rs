@@ -1,5 +1,5 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
+use crate::meta::{Category, RuleMeta};
 use crate::rule::Rule;
 use crate::util::{has_attr, is_a11y_hidden, is_presentational, opening_tag_span};
 use tl::VDom;
@@ -21,6 +21,7 @@ impl Rule for ImgAlt {
         RuleMeta {
             id: self.id(),
             severity: Severity::Error,
+            category: Category::Accessibility,
             summary: "Every <img> has an alt attribute",
             help: "Add a descriptive alt; use alt=\"\" for purely decorative images.",
             example_bad: r#"<img src="logo.png">"#,

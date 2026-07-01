@@ -71,6 +71,94 @@ pub struct RenderOpts {
     pub verbose: bool,
     pub quiet: bool,
     pub dir: String,
+    /// Usa glifi solo-ASCII (utile su console che non rendono l'unicode).
+    pub ascii: bool,
+    /// Larghezza utile del terminale (colonne), già clampata.
+    pub width: usize,
+}
+
+impl RenderOpts {
+    /// Il set di glifi da usare in base a `ascii`.
+    pub(crate) fn glyphs(&self) -> Glyphs {
+        Glyphs::new(self.ascii)
+    }
+}
+
+/// Larghezza del terminale in colonne (per `pretty`/`summary`), clampata a un
+/// intervallo ragionevole. Fallback a 80 fuori da un terminale.
+pub fn term_width() -> usize {
+    terminal_size::terminal_size()
+        .map(|(terminal_size::Width(w), _)| w as usize)
+        .unwrap_or(80)
+        .clamp(40, 120)
+}
+
+/// Insieme di simboli usati dai report testuali: una variante unicode "ricca" e
+/// una solo-ASCII per i terminali che non rendono i glifi.
+pub(crate) struct Glyphs {
+    pub diamond: &'static str,
+    pub tl: &'static str,
+    pub branch: &'static str,
+    pub bar: &'static str,
+    pub bl: &'static str,
+    pub hline: &'static str,
+    pub panel_tl: &'static str,
+    pub panel_branch: &'static str,
+    pub panel_bl: &'static str,
+    pub cell_full: &'static str,
+    pub cell_empty: &'static str,
+    pub dot: &'static str,
+    pub caret: &'static str,
+    pub ellipsis: &'static str,
+    pub cross: &'static str,
+    pub warn: &'static str,
+    pub check: &'static str,
+}
+
+impl Glyphs {
+    pub(crate) fn new(ascii: bool) -> Self {
+        if ascii {
+            Glyphs {
+                diamond: "*",
+                tl: "+-",
+                branch: "|-",
+                bar: "|",
+                bl: "+-",
+                hline: "-",
+                panel_tl: "+-",
+                panel_branch: "+-",
+                panel_bl: "+",
+                cell_full: "#",
+                cell_empty: ".",
+                dot: "*",
+                caret: "^",
+                ellipsis: "...",
+                cross: "x",
+                warn: "!",
+                check: "v",
+            }
+        } else {
+            Glyphs {
+                diamond: "◆",
+                tl: "┌─",
+                branch: "├─",
+                bar: "│",
+                bl: "└─",
+                hline: "─",
+                panel_tl: "╭─",
+                panel_branch: "├─",
+                panel_bl: "╰",
+                cell_full: "■",
+                cell_empty: "·",
+                dot: "●",
+                caret: "▲",
+                ellipsis: "…",
+                cross: "✖",
+                warn: "⚠",
+                check: "✔",
+            }
+        }
+    }
 }
 
 /// Renderizza l'analisi nel formato richiesto.
@@ -101,6 +189,8 @@ mod tests {
         f.attach("dist/index.html".into(), Arc::from("<img>\n"));
         Analysis {
             pages: 1,
+            skipped: 0,
+            baselined: 0,
             findings: vec![f],
             elapsed: Duration::from_millis(3),
         }
@@ -109,18 +199,31 @@ mod tests {
     #[test]
     fn json_e_valido_e_completo() {
         let v: serde_json::Value = serde_json::from_str(&json::render(&sample())).unwrap();
+        assert_eq!(v["schema_version"], 1);
         assert_eq!(v["summary"]["errors"], 1);
+        assert_eq!(v["summary"]["skipped"], 0);
         assert_eq!(v["findings"][0]["rule"], "img-alt");
         assert_eq!(v["findings"][0]["line"], 1);
+        assert_eq!(v["findings"][0]["category"], "accessibility");
         assert!(v["findings"][0]["help"].is_string());
+        assert!(v["findings"][0]["docs_url"].is_string());
+        // Punteggio per pagina presente.
+        assert_eq!(v["pages"][0]["file"], "dist/index.html");
+        assert!(v["pages"][0]["score"].is_number());
     }
 
     #[test]
     fn sarif_e_valido() {
         let v: serde_json::Value = serde_json::from_str(&sarif::render(&sample())).unwrap();
         assert_eq!(v["version"], "2.1.0");
-        assert_eq!(v["runs"][0]["results"][0]["ruleId"], "img-alt");
-        assert_eq!(v["runs"][0]["results"][0]["level"], "error");
+        let result = &v["runs"][0]["results"][0];
+        assert_eq!(result["ruleId"], "img-alt");
+        assert_eq!(result["level"], "error");
+        // Regione con fine e fingerprint stabile per il code scanning.
+        let region = &result["locations"][0]["physicalLocation"]["region"];
+        assert_eq!(region["startLine"], 1);
+        assert!(region["endColumn"].is_number());
+        assert!(result["partialFingerprints"]["lightshipFingerprint/v1"].is_string());
     }
 
     #[test]
@@ -139,6 +242,8 @@ mod tests {
                 verbose: false,
                 quiet: false,
                 dir: "dist".to_string(),
+                ascii: false,
+                width: 80,
             },
         );
         assert!(report.contains("CHECK FAILED"));

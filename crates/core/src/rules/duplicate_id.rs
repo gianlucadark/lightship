@@ -1,5 +1,5 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
+use crate::meta::{Category, RuleMeta};
 use crate::rule::Rule;
 use crate::util::{attr, opening_tag_span};
 use std::collections::HashSet;
@@ -18,6 +18,7 @@ impl Rule for DuplicateId {
         RuleMeta {
             id: self.id(),
             severity: Severity::Error,
+            category: Category::Correctness,
             summary: "Element ids are unique in the document",
             help: "Make every id unique; use a class for shared styling or groups.",
             example_bad: r#"<p id="x"></p><span id="x"></span>"#,

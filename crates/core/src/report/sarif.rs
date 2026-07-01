@@ -20,6 +20,7 @@ pub fn render(analysis: &Analysis) -> String {
                 "fullDescription": { "text": m.help },
                 "helpUri": m.docs_url,
                 "defaultConfiguration": { "level": sarif_level(m.severity) },
+                "properties": { "category": m.category.label(), "tags": [m.category.label()] },
             })
         })
         .collect();
@@ -29,17 +30,25 @@ pub fn render(analysis: &Analysis) -> String {
         .iter()
         .map(|f| {
             let uri = f.file.display().to_string().replace('\\', "/");
+            // Regione: start sempre, end quando lo span lo consente (per SARIF
+            // endColumn è esclusiva).
+            let mut region = json!({
+                "startLine": f.line.unwrap_or(1),
+                "startColumn": f.column.unwrap_or(1),
+            });
+            if let Some((end_line, end_col)) = f.end_location() {
+                region["endLine"] = json!(end_line);
+                region["endColumn"] = json!(end_col);
+            }
             json!({
                 "ruleId": f.rule,
                 "level": sarif_level(f.severity),
                 "message": { "text": f.message },
+                "partialFingerprints": { "lightshipFingerprint/v1": f.fingerprint() },
                 "locations": [{
                     "physicalLocation": {
                         "artifactLocation": { "uri": uri },
-                        "region": {
-                            "startLine": f.line.unwrap_or(1),
-                            "startColumn": f.column.unwrap_or(1),
-                        }
+                        "region": region,
                     }
                 }],
             })

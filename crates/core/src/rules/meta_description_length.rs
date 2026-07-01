@@ -1,6 +1,6 @@
 use crate::finding::{Finding, Severity};
-use crate::meta::RuleMeta;
-use crate::rule::Rule;
+use crate::meta::{Category, RuleMeta};
+use crate::rule::{Rule, RuleScope};
 use crate::util::{attr, opening_tag_span};
 use tl::VDom;
 
@@ -18,10 +18,15 @@ impl Rule for MetaDescriptionLength {
         "meta-description-length"
     }
 
+    fn scope(&self) -> RuleScope {
+        RuleScope::Document
+    }
+
     fn meta(&self) -> RuleMeta {
         RuleMeta {
             id: self.id(),
             severity: Severity::Warn,
+            category: Category::Seo,
             summary: "The meta description is ~50–160 characters",
             help: "Aim for a 50–160 character description so it isn't truncated in search results.",
             example_bad: r#"<meta name="description" content="Shoes.">"#,
@@ -51,9 +56,13 @@ impl Rule for MetaDescriptionLength {
         }
 
         let problem = if content < MIN_CHARS {
-            Some(format!("meta description is short ({content} chars; aim for ≥{MIN_CHARS})"))
+            Some(format!(
+                "meta description is short ({content} chars; aim for ≥{MIN_CHARS})"
+            ))
         } else if content > MAX_CHARS {
-            Some(format!("meta description is long ({content} chars; keep ≤{MAX_CHARS})"))
+            Some(format!(
+                "meta description is long ({content} chars; keep ≤{MAX_CHARS})"
+            ))
         } else {
             None
         };

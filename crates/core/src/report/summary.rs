@@ -1,14 +1,23 @@
 use crate::Analysis;
 use crate::finding::Severity;
+use crate::report::{Glyphs, RenderOpts};
 use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-const WIDTH: usize = 62;
+/// Larghezza massima del pannello di riepilogo; entro questa si adatta alla
+/// larghezza del terminale.
+const MAX_WIDTH: usize = 62;
 
 /// Quality score used by the terminal and JSON reports.
 pub fn score(analysis: &Analysis) -> (u8, char) {
-    let penalty = analysis.errors() * 10 + analysis.warnings() * 3;
+    score_from(analysis.errors(), analysis.warnings())
+}
+
+/// Punteggio 0–100 e voto A–F da un conteggio di errori/warning. Estratto così
+/// da riusarlo anche per il punteggio **per pagina**.
+pub fn score_from(errors: usize, warnings: usize) -> (u8, char) {
+    let penalty = errors * 10 + warnings * 3;
     let score = 100u32.saturating_sub(penalty as u32).min(100) as u8;
     let grade = match score {
         90..=100 => 'A',
@@ -20,14 +29,50 @@ pub fn score(analysis: &Analysis) -> (u8, char) {
     (score, grade)
 }
 
+/// Statistiche e punteggio di una singola pagina.
+pub struct PageStats {
+    pub file: String,
+    pub errors: usize,
+    pub warnings: usize,
+    pub score: u8,
+    pub grade: char,
+}
+
+/// Statistiche per pagina (un elemento per file con almeno un finding),
+/// ordinate per nome file. Usate dal report JSON e dalla dashboard.
+pub fn per_page(analysis: &Analysis) -> Vec<PageStats> {
+    let mut map: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    for f in &analysis.findings {
+        let entry = map.entry(f.file.display().to_string()).or_default();
+        match f.severity {
+            Severity::Error => entry.0 += 1,
+            Severity::Warn => entry.1 += 1,
+        }
+    }
+    map.into_iter()
+        .map(|(file, (errors, warnings))| {
+            let (score, grade) = score_from(errors, warnings);
+            PageStats {
+                file,
+                errors,
+                warnings,
+                score,
+                grade,
+            }
+        })
+        .collect()
+}
+
 /// Compact dashboard placed after the detailed findings.
-pub fn render(analysis: &Analysis) -> String {
+pub fn render(analysis: &Analysis, opts: &RenderOpts) -> String {
+    let g = opts.glyphs();
+    let width = opts.width.min(MAX_WIDTH);
     let errors = analysis.errors();
     let warnings = analysis.warnings();
     let (score, grade) = score(analysis);
     let mut out = String::new();
 
-    out.push_str(&top_border(" Results "));
+    out.push_str(&top_border(&g, width, " Results "));
 
     let verdict = if errors > 0 {
         "FAIL".on_red().white().bold().to_string()
@@ -39,18 +84,18 @@ pub fn render(analysis: &Analysis) -> String {
     let _ = writeln!(
         out,
         "{}  {}  {}  {}",
-        "│".dimmed(),
+        g.bar.dimmed(),
         verdict,
         error_text.red().bold(),
         warning_text.yellow().bold()
     );
 
-    let health = health_bar(score);
+    let health = health_bar(score, &g);
     let score_text = format!("{score}/100 · grade {grade}");
     let _ = writeln!(
         out,
         "{}  {}  {}  {}",
-        "│".dimmed(),
+        g.bar.dimmed(),
         "Health".dimmed(),
         health,
         color_score(score_text, grade)
@@ -58,27 +103,55 @@ pub fn render(analysis: &Analysis) -> String {
     let _ = writeln!(
         out,
         "{}  {} {}  {} {}",
-        "│".dimmed(),
+        g.bar.dimmed(),
         "Pages".dimmed(),
         analysis.pages.to_string().bold(),
         "Time".dimmed(),
         format!("{} ms", analysis.elapsed.as_millis()).bold()
     );
+    if analysis.skipped > 0 {
+        let _ = writeln!(
+            out,
+            "{}  {} {}",
+            g.bar.dimmed(),
+            "Skipped".dimmed(),
+            format!(
+                "{} {} (unreadable, unparseable or too large)",
+                analysis.skipped,
+                plural(analysis.skipped, "file", "files")
+            )
+            .dimmed()
+        );
+    }
+    if analysis.baselined > 0 {
+        let _ = writeln!(
+            out,
+            "{}  {} {}",
+            g.bar.dimmed(),
+            "Baseline".dimmed(),
+            format!(
+                "{} known {} suppressed",
+                analysis.baselined,
+                plural(analysis.baselined, "issue", "issues")
+            )
+            .dimmed()
+        );
+    }
 
     let rows = sorted_rule_counts(analysis);
     if !rows.is_empty() {
-        out.push_str(&middle_border(" Issues by rule "));
+        out.push_str(&middle_border(&g, width, " Issues by rule "));
         for (id, errors, warnings) in &rows {
             let marker = if *errors > 0 {
-                "●".red().to_string()
+                g.dot.red().to_string()
             } else {
-                "●".yellow().to_string()
+                g.dot.yellow().to_string()
             };
             let total = errors + warnings;
             let _ = writeln!(
                 out,
                 "{}  {} {:<22} {}",
-                "│".dimmed(),
+                g.bar.dimmed(),
                 marker,
                 id,
                 total.to_string().bold()
@@ -88,11 +161,11 @@ pub fn render(analysis: &Analysis) -> String {
         // Guida l'utente medio: la regola più frequente è il punto di partenza.
         if let Some((id, errors, warnings)) = rows.first() {
             let total = errors + warnings;
-            let _ = writeln!(out, "{}", "│".dimmed());
+            let _ = writeln!(out, "{}", g.bar.dimmed());
             let _ = writeln!(
                 out,
                 "{}  {} {} {}",
-                "│".dimmed(),
+                g.bar.dimmed(),
                 "Start here".green().bold(),
                 format!("{id} ({total})").bold(),
                 format!("→ lightship explain {id}").dimmed(),
@@ -100,7 +173,7 @@ pub fn render(analysis: &Analysis) -> String {
         }
     }
 
-    out.push_str(&bottom_border());
+    out.push_str(&bottom_border(&g, width));
     out
 }
 
@@ -125,10 +198,14 @@ fn sorted_rule_counts(analysis: &Analysis) -> Vec<(&'static str, usize, usize)> 
     rows
 }
 
-fn health_bar(score: u8) -> String {
+fn health_bar(score: u8, g: &Glyphs) -> String {
     const CELLS: usize = 10;
-    let filled = ((score as usize * CELLS) + 99) / 100;
-    let raw = format!("{}{}", "■".repeat(filled), "·".repeat(CELLS - filled));
+    let filled = (score as usize * CELLS).div_ceil(100);
+    let raw = format!(
+        "{}{}",
+        g.cell_full.repeat(filled),
+        g.cell_empty.repeat(CELLS - filled)
+    );
     match score {
         90..=100 => raw.green().to_string(),
         60..=89 => raw.yellow().to_string(),
@@ -144,26 +221,30 @@ fn color_score(text: String, grade: char) -> String {
     }
 }
 
-fn top_border(title: &str) -> String {
-    titled_border("╭─", title)
+fn top_border(g: &Glyphs, width: usize, title: &str) -> String {
+    titled_border(g.panel_tl, g, width, title)
 }
 
-fn middle_border(title: &str) -> String {
-    titled_border("├─", title)
+fn middle_border(g: &Glyphs, width: usize, title: &str) -> String {
+    titled_border(g.panel_branch, g, width, title)
 }
 
-fn titled_border(left: &str, title: &str) -> String {
-    let remaining = WIDTH.saturating_sub(title.chars().count());
+fn titled_border(left: &str, g: &Glyphs, width: usize, title: &str) -> String {
+    let remaining = width.saturating_sub(title.chars().count());
     format!(
         "{}{}{}\n",
         left.dimmed(),
         title.bold(),
-        "─".repeat(remaining).dimmed(),
+        g.hline.repeat(remaining).dimmed(),
     )
 }
 
-fn bottom_border() -> String {
-    format!("{}{}\n", "╰".dimmed(), "─".repeat(WIDTH).dimmed())
+fn bottom_border(g: &Glyphs, width: usize) -> String {
+    format!(
+        "{}{}\n",
+        g.panel_bl.dimmed(),
+        g.hline.repeat(width).dimmed()
+    )
 }
 
 fn plural<'a>(n: usize, singular: &'a str, plural: &'a str) -> &'a str {
@@ -186,6 +267,8 @@ mod tests {
         }
         Analysis {
             pages: 1,
+            skipped: 0,
+            baselined: 0,
             findings,
             elapsed: Duration::from_millis(0),
         }
@@ -200,7 +283,13 @@ mod tests {
 
     #[test]
     fn health_bar_has_ten_cells() {
-        let bar = health_bar(45);
+        let bar = health_bar(45, &Glyphs::new(false));
         assert!(bar.contains("■■■■■·····"));
+    }
+
+    #[test]
+    fn health_bar_ascii() {
+        let bar = health_bar(45, &Glyphs::new(true));
+        assert!(bar.contains("#####....."));
     }
 }

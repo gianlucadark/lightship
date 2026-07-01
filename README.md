@@ -1,259 +1,369 @@
 # Lightship 🛳️
 
-Linter statico per l'**output HTML di build** — qualunque framework (Astro, Vite,
-Next, SvelteKit, Hugo, Jekyll, sito statico a mano…).
+A static linter for your **built HTML output** — any framework (Astro, Vite,
+Next, SvelteKit, Hugo, Jekyll, a hand-written static site…).
 
-Lightship analizza i file `.html`/`.css` **già buildati**, senza avviare un
-browser, e **fa fallire la build** (exit code ≠ 0) quando trova problemi di
-accessibilità, SEO o performance. È pensato per girare in CI subito dopo lo step
-di build, sulla cartella di output (`dist/`, `build/`, `out/`, `_site/`…).
+Lightship analyzes your **already-built** `.html` files, without spinning up a
+browser, and **fails the build** (non-zero exit code) when it finds accessibility,
+SEO or performance problems. It's designed to run in CI right after the build
+step, on the output folder (`dist/`, `build/`, `out/`, `_site/`…).
 
-> Il cuore è una **libreria Rust pura** (`lightship-core`); la CLI (`lightship`)
-> e i futuri binding npm sono gusci sottili sopra di essa.
-
----
-
-## Cosa controlla
-
-Ogni problema trovato è un **finding** con una gravità:
-
-- **Error** → fa uscire il processo con codice `1` (rompe la build in CI).
-- **Warn** → segnalato ma non blocca (exit `0` se non ci sono Error).
-
-| Regola             | Gravità | Cosa verifica |
-|--------------------|---------|---------------|
-| `img-alt`          | Error   | Ogni `<img>` ha l'attributo `alt` (`alt=""` è valido per le decorative). |
-| `html-lang`        | Error   | `<html>` ha un `lang` non vuoto. |
-| `title-present`    | Error   | Esiste un `<title>` con testo non vuoto. |
-| `duplicate-id`     | Error   | Gli `id` sono unici nel documento. |
-| `meta-charset`     | Warn    | È presente `<meta charset>`. |
-| `meta-viewport`    | Warn    | È presente `<meta name="viewport">` (responsive). |
-| `meta-description` | Warn    | È presente `<meta name="description">` con `content` non vuoto. |
-| `img-dimensions`   | Warn    | Ogni `<img>` ha `width` **e** `height` (evita layout shift / CLS). |
-| `a-no-text`        | Warn    | Ogni `<a href>` ha un nome accessibile (testo, `aria-label`, `title`, o `<img alt>`). |
+> The core is a **pure Rust library** (`lightship-core`); the CLI (`lightship`)
+> and future npm bindings are thin shells on top of it.
 
 ---
 
-## Come funziona (architettura)
+## What it checks
+
+Every problem is a **finding** with a severity:
+
+- **Error** → exits with code `1` (breaks the CI build).
+- **Warn** → reported but non-blocking (exit `0` if there are no errors).
+
+Rules are grouped into **categories** — accessibility, SEO, performance, security,
+correctness — which you can filter with `--only-category` and `--preset`.
+Run `lightship rules` for the full, always-up-to-date list, or
+`lightship explain <rule>` for details on any one. The current set (26 rules):
+
+### Accessibility
+| Rule | Severity | Checks |
+|------|----------|--------|
+| `img-alt`           | Error | Every `<img>` has an `alt` (`alt=""` is valid for decorative images). |
+| `html-lang`         | Error | `<html>` has a non-empty `lang`. |
+| `title-present`     | Error | A `<title>` with non-empty text exists. |
+| `a-no-text`         | Warn  | Every `<a href>` has an accessible name. |
+| `button-name`       | Warn  | Every `<button>` has an accessible name. |
+| `label-control`     | Warn  | Every form control has an associated label. |
+| `label-for-target`  | Warn  | Every `<label for>` points to an existing element id. |
+| `aria-ref-target`   | Warn  | `aria-labelledby`/`aria-describedby` reference existing ids. |
+| `iframe-title`      | Warn  | Every `<iframe>` has a non-empty `title`. |
+| `heading-order`     | Warn  | Heading levels increase by one, without skipping. |
+| `positive-tabindex` | Warn  | No element uses a positive `tabindex`. |
+| `table-headers`     | Warn  | Data tables have header cells (`<th>`). |
+| `lang-valid`        | Warn  | The `<html lang>` value is a well-formed BCP-47 tag. |
+
+### SEO
+| Rule | Severity | Checks |
+|------|----------|--------|
+| `meta-charset`            | Warn | `<meta charset>` is present. |
+| `meta-viewport`           | Warn | `<meta name="viewport">` is present (responsive). |
+| `meta-description`        | Warn | `<meta name="description">` with non-empty `content`. |
+| `meta-description-length` | Warn | The meta description is ~50–160 characters. |
+| `title-length`            | Warn | The `<title>` is at most ~60 characters. |
+| `single-h1`               | Warn | The page has exactly one `<h1>`. |
+| `canonical-link`          | Warn | At most one `<link rel="canonical">` with a non-empty href. |
+| `duplicate-meta`          | Warn | Single-instance head tags (title/charset/viewport/description) aren't duplicated. |
+
+### Performance
+| Rule | Severity | Checks |
+|------|----------|--------|
+| `img-dimensions`         | Warn | Every `<img>` has `width` **and** `height` (avoids layout shift / CLS). |
+| `render-blocking-script` | Warn | No render-blocking `<script>` in `<head>`. |
+| `img-lazy-loading`       | Warn | Every `<img>` declares a `loading` strategy. *(opt-in: `--preset all`)* |
+
+### Security
+| Rule | Severity | Checks |
+|------|----------|--------|
+| `link-target-blank` | Warn | `<a target="_blank">` sets `rel="noopener"`. |
+
+### Correctness
+| Rule | Severity | Checks |
+|------|----------|--------|
+| `duplicate-id` | Error | Element ids are unique in the document. |
+
+### Fragments vs. full pages
+
+Many build outputs contain **HTML fragments** — component partials, email
+templates, htmx/Turbo snippets — that have no `<html>`/`<head>`. Document-level
+rules (title, charset, viewport, single-h1, heading-order, …) only run on **full
+pages** so those fragments don't produce false "missing title/charset/viewport"
+findings. Element-level rules (`img-alt`, `a-no-text`, …) still run everywhere.
+Pass `--include-fragments` (or `[analyze] include_fragments = true`) to run
+everything on every file.
+
+---
+
+## How it works (architecture)
 
 ```
-                 ┌────────────────────────── lightship-core (libreria pura) ──────────────────────────┐
-  cartella  ──►  discovery (ignore)  ──►  parse HTML (tl)  ──►  regole (rayon, in parallelo)  ──►  Finding[]
-                                                                              │
-   CLI (lightship) ◄── exit 0/1 ── dashboard / json / sarif / github  ◄───────┘
+                 ┌──────────────────── lightship-core (pure library) ────────────────────┐
+  folder   ──►   discovery (ignore)  ──►  parse HTML (tl)  ──►  rules (rayon, in parallel)  ──►  Finding[]
+                                                                          │
+   CLI (lightship) ◄── exit 0/1 ── dashboard / json / sarif / github  ◄───┘
 ```
 
-1. **Discovery** — con il crate [`ignore`](https://docs.rs/ignore) cammina
-   ricorsivamente la cartella e raccoglie tutti i `.html`. I filtri `.gitignore`
-   sono **disattivati** di proposito: l'output di build spesso vive in cartelle
-   gitignorate (`dist/`), e vanno comunque analizzate. Le cartelle nascoste
-   (`.git`…) vengono saltate.
-2. **Parse** — ogni file è parsato in un DOM interrogabile con
-   [`tl`](https://docs.rs/tl), un parser HTML che **conserva gli offset** del
-   sorgente. I file sono indipendenti, quindi vengono processati **in parallelo**
-   con [`rayon`](https://docs.rs/rayon).
-3. **Regole** — ogni regola implementa il trait
-   `Rule { id(); check(&VDom, &str) -> Vec<Finding> }` e vive nel suo modulo
-   (`crates/core/src/rules/`). Aggiungerne una è banale: nuovo file + una riga in
-   `rules::all()`.
-4. **Report** — i finding sono raggruppati per file e renderizzati dal modulo
-   `report/` in più formati: `pretty` (dashboard a colori con suggerimenti e
-   pannello di riepilogo), `compact`, `json`, `sarif`, `github`. I colori ANSI
-   sono gestiti da [`anstream`](https://docs.rs/anstream) + [`owo-colors`](https://docs.rs/owo-colors)
-   e rimossi automaticamente fuori dal terminale.
+1. **Discovery** — walks the folder recursively with [`ignore`](https://docs.rs/ignore)
+   and collects every `.html`. Gitignore filters are **disabled** on purpose: build
+   output often lives in gitignored folders (`dist/`) and must still be analyzed.
+   Heavy folders (`node_modules`, `vendor`, …) are pruned; hidden ones skipped.
+2. **Parse** — each file is parsed into a queryable DOM with
+   [`tl`](https://docs.rs/tl), an HTML parser that **keeps source offsets**. Files
+   are independent, so they're processed **in parallel** with
+   [`rayon`](https://docs.rs/rayon). Non-UTF-8 bytes are read leniently; unreadable,
+   unparseable or oversized files are **skipped** (and counted, not silently dropped).
+3. **Rules** — each rule implements `Rule { id(); meta(); scope(); check(&VDom, &str) }`
+   and lives in its own module (`crates/core/src/rules/`). Adding one is trivial:
+   a new file plus one line in `rules::all()`.
+4. **Report** — findings are grouped by file and rendered by the `report/` module in
+   several formats: `pretty` (colored dashboard with real code snippets, per-page
+   score and a summary panel), `compact`, `json`, `sarif`, `github`. ANSI colors are
+   handled by [`anstream`](https://docs.rs/anstream) + [`owo-colors`](https://docs.rs/owo-colors)
+   and stripped automatically outside a terminal.
 
-### Snippet di codice reale
+### Real code snippets
 
-Ogni `Finding` legato a un elemento porta lo **span** `(offset, len)` del tag di
-apertura nel sorgente: il report estrae da lì il **codice vero** del file (non una
-ricostruzione) e calcola **numero di riga e colonna corretti**. I finding "di
-documento" (es. `<meta>` mancante) non hanno un elemento, quindi mostrano il solo
-messaggio. Questo è possibile perché `tl` espone gli offset di sorgente, che
-`scraper`/html5ever invece normalizzavano via.
+Every element-bound `Finding` carries the **span** `(offset, len)` of the opening
+tag in the source: the report extracts the **actual code** from the file (not a
+reconstruction) and computes **correct line and column**. Document-level findings
+(e.g. a missing `<meta>`) have no element, so they show just the message. This is
+possible because `tl` exposes source offsets, which `scraper`/html5ever normalize away.
 
 ---
 
-## Installazione
+## Installation
 
-Serve [Rust](https://rustup.rs) (edition 2024, testato con Rust 1.96).
+Requires [Rust](https://rustup.rs) (edition 2024).
 
 ```bash
-# dalla root del repo: installa il binario `lightship` a livello utente
+# from the repo root: install the `lightship` binary user-wide
 cargo install --path crates/cli
 ```
 
-Ora `lightship` è nel PATH (`~/.cargo/bin`). In alternativa, senza installare,
-puoi sempre usare `cargo run -p lightship -- <cartella>` dalla root del repo.
+`lightship` is now on your PATH (`~/.cargo/bin`). Or, without installing, use
+`cargo run -p lightship -- <folder>` from the repo root.
 
 ---
 
-## Uso
+## Usage
 
 ```bash
-lightship                       # auto-rileva la cartella di build e la analizza
-lightship [CARTELLA]            # = lightship analyze CARTELLA
-lightship analyze [CARTELLA]    # analizza (alias: check, scan)
-lightship rules                 # elenca tutte le regole con gravità e descrizione
-lightship explain <regola>      # dettaglio di una regola: cosa controlla, come correggere, esempi
-lightship init [CARTELLA]       # crea un lightship.toml (rileva il framework)
-lightship ci [CARTELLA]         # genera un workflow GitHub Actions pronto all'uso
+lightship                       # auto-detect the build folder and analyze it
+lightship [FOLDER]              # = lightship analyze FOLDER
+lightship analyze [FOLDER]      # analyze (aliases: check, scan)
+lightship rules                 # list every rule with severity and description
+lightship explain <rule>        # rule detail: what it checks, how to fix, examples
+lightship init [FOLDER]         # create a lightship.toml (detects your framework)
+lightship ci [FOLDER]           # scaffold a ready-to-use GitHub Actions workflow
+lightship baseline [FOLDER]     # freeze current findings so CI only fails on new ones
+lightship fix [FOLDER]          # interactively apply safe automatic fixes
 ```
 
-> **Zero-config:** lanciato **senza argomenti**, Lightship prova a rilevare la
-> cartella di output del tuo progetto (dal framework in `package.json` o dai file
-> di config; in fallback prova `dist`, `build`, `out`, `_site`, `public`) e la
-> analizza. Niente da ricordare: builda e lancia `lightship`. La nota di
-> rilevamento va su **stderr**, così `--format json|sarif|github` resta pulito su
+> **Zero-config:** run with **no arguments** and Lightship tries to detect your
+> project's output folder (from the framework in `package.json` or config files;
+> falling back to `dist`, `build`, `out`, `_site`, `public`) and analyze it. The
+> detection note goes to **stderr**, so `--format json|sarif|github` stays clean on
 > stdout.
 
-### Opzioni di `analyze`
+### `analyze` options
 
-- `CARTELLA` — cartella da analizzare (default: auto-rilevata, vedi sopra).
-- `-q, --quiet` — stampa solo il pannello di riepilogo.
-- `-v, --verbose` — output più dettagliato.
-- `--format <pretty|compact|json|sarif|github>` — formato di output (default `pretty`).
-- `--no-color` — disattiva i colori ANSI.
-- `--no-suggestions` — nasconde la riga 💡 con il fix.
-- `--max-warnings <N>` — fa fallire la build se i warning superano `N`.
-- `--only <regole>` — esegue solo le regole indicate (separate da virgola).
-- `--config <path>` — file di config esplicito.
-- `--watch` — ri-analizza automaticamente a ogni cambiamento dei file.
+- `FOLDER` — folder to analyze (default: auto-detected).
+- `-q, --quiet` — print only the summary panel.
+- `-v, --verbose` — more detailed output (no snippet truncation).
+- `--format <pretty|compact|json|sarif|github>` — output format (default `pretty`).
+- `--only <rules>` — run only these rules (comma-separated).
+- `--only-category <cats>` — run only these categories (`accessibility`/`a11y`, `seo`, `performance`, `security`, `correctness`).
+- `--preset <recommended|all|CATEGORY>` — rule set to run (default `recommended`).
+- `--include-fragments` — also run document-level rules on partials/fragments.
+- `--baseline <path>` — suppress known findings from a baseline file.
+- `--max-warnings <N>` — fail the build if warnings exceed `N`.
+- `--error-on-warnings` — fail on any warning.
+- `--color <auto|always|never>` / `--no-color` — control ANSI colors.
+- `--ascii` — ASCII-only glyphs (for terminals that don't render box-drawing).
+- `--no-suggestions` — hide the 💡 fix line.
+- `--config <path>` — explicit config file.
+- `--watch` — re-analyze automatically on file changes.
 
-Exit code: `0` se non ci sono Error (e i warning sono entro `--max-warnings`), `1` altrimenti.
+Exit code: `0` if there are no errors (and warnings are within your thresholds), `1` otherwise.
 
 ### Output
 
-Il formato `pretty` (default) è una **dashboard a colori**: banner, finding raggruppati
-per file con snippet di codice reale (riga/colonna + caret), un **suggerimento di fix**
-per ognuno, e un pannello di riepilogo con grafico per regola, **punteggio 0–100 (voto
-A–F)** e verdetto `PASS`/`FAIL`. I colori vengono disattivati automaticamente quando
-l'output non è un terminale (utile in CI) o con `--no-color`/`NO_COLOR`.
+The default `pretty` format is a **colored dashboard**: banner, findings grouped by
+file with real code snippets (line/column + underline), a **fix suggestion** for
+each, a per-file grade, and a summary panel with a per-rule chart, a **0–100 score
+(grade A–F)** and a `PASS`/`FAIL` verdict. Colors turn off automatically when the
+output isn't a terminal (handy in CI) or with `--no-color`/`NO_COLOR`.
 
-Per CI e code scanning sono disponibili `--format json`, `--format sarif`
-(SARIF 2.1.0, GitHub code scanning) e `--format github` (annotazioni inline).
+For CI and code scanning use `--format json`, `--format sarif` (SARIF 2.1.0 with
+`endLine`/`endColumn` regions and stable `partialFingerprints`), or `--format github`
+(inline annotations). JSON includes per-finding `category`/`docs_url` and per-page scores.
 
-### Configurazione (`lightship.toml`)
+### Baseline (adopt on an existing project)
 
-`lightship init` crea un file di esempio. Permette di sovrascrivere la gravità o
-disattivare le regole, escludere percorsi e fissare il formato di default:
+Introducing a linter on a mature site can surface dozens of pre-existing issues.
+A **baseline** freezes today's state so CI only fails on **new** problems:
+
+```bash
+lightship baseline dist     # writes dist/lightship-baseline.json
+lightship dist              # future runs suppress the frozen findings
+```
+
+Suppression is occurrence-accurate: if a page had one `img-alt` and now has two,
+the baseline covers one and the **new** one still fails the build. The baseline file
+is human-readable (rule + file + message) and safe to review in a PR.
+
+### Autofix (`lightship fix`)
+
+Some problems have a single, unambiguous correction, so Lightship can apply it for
+you. `lightship fix` lists every **safe, deterministic** fix — numbered, with the
+exact change it will make — and lets you choose which to apply (individually, as a
+range, or all):
+
+```text
+5 auto-fixable issue(s):
+
+  [1] add rel="noopener" to this target="_blank" link  (link-target-blank)
+       dist/page.html:1:85
+       → insert: rel="noopener"
+  [2] insert <meta charset="utf-8"> as the first <head> child  (meta-charset)
+       ...
+
+Select fixes to apply [e.g. 1,3 or 2-4 · 'a' all · 'q' quit]:
+```
+
+- `--all` applies every fix without prompting; `--dry-run` previews without writing.
+- Fixable rules: `link-target-blank`, `img-lazy-loading`, `meta-charset`,
+  `meta-viewport`, `html-lang` (inserts `lang="en"` — change it if the page isn't
+  English). Rules that need human judgment (`img-alt` text, `img-dimensions`) are
+  reported but never auto-changed.
+
+> Note: Lightship fixes the **built output**, which is regenerated on the next build.
+> Use `fix` to preview/patch a one-off artifact; for lasting fixes, apply the change
+> in your source templates.
+
+### Configuration (`lightship.toml`)
+
+`lightship init` creates an example file. It lets you override severity or disable
+rules, exclude paths, pick a default format/preset, and set CI thresholds:
 
 ```toml
 [rules]
-img-alt = "error"     # error | warn | off
+img-alt = "error"          # error | warn | off
 meta-viewport = "off"
 
 [ignore]
 paths = ["**/404.html", "**/_*.html"]
 
+[analyze]
+# include_fragments = false     # run document rules on partials too
+# max_file_bytes = 8388608      # skip files larger than this
+# preset = "recommended"        # recommended | all | <category>
+
 [output]
-format = "pretty"
+format = "pretty"               # pretty | compact | json | sarif | github
+
+[ci]
+# max_warnings = 0              # fail if warnings exceed this
+# error_on_warnings = false     # fail on any warning
 ```
 
-Il file viene cercato in `--config`, poi nella cartella analizzata, poi nella cwd.
+The file is looked up via `--config`, then the analyzed folder, then the cwd.
 
 ---
 
-## Testarlo su un TUO progetto (es. Astro / Vite / Next)
+## Try it on YOUR project (Astro / Vite / Next / …)
 
-L'idea: **builda il tuo progetto** come fai di solito, poi punta Lightship alla
-cartella di output.
+The idea: **build your project** as usual, then point Lightship at the output folder.
 
 ```bash
-# 1. nel tuo progetto, builda come al solito
+# 1. in your project, build as usual
 npm run build        # Astro/Vite → dist/ , Next export → out/ , Eleventy → _site/ ...
 
-# 2. lancia Lightship sulla cartella di output
+# 2. run Lightship on the output folder
 lightship dist
 ```
 
-Esempio con output reale (`pretty`):
-
-L'output utente è in **inglese**:
+Example real output (`pretty`):
 
 ```text
-🛳  Lightship v0.2.2
-   analyzing dist
+◆  LIGHTSHIP v0.2.2
+   Scanning dist
 
-❯ dist/blog/index.html  · 1 issue  ✖1 ⚠0
-  ✖ img-alt  L1:C1
-    <img> is missing an alt attribute
-    1 │ <img src="/assets/cover.png">
-      │ ▲ here
-    💡 Add a descriptive alt; use alt="" for purely decorative images.
+   CHECK FAILED  1 error · 0 warnings · 12 pages
 
-───────────────────── Summary ──────────────────────
- Pages     12           Time      7 ms
- Errors    3 ✖          Warnings  5 ⚠
+┌─ dist/blog/index.html  1 error · F 90
+│
+├─  ERROR    img-alt · 1:1
+│     <img> is missing an alt attribute
+│     1 │ <img src="/assets/cover.png">
+│       │ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ here
+│     Fix Add a descriptive alt; use alt="" for purely decorative images.
+└─
 
- By rule
-   img-alt          ███████  3
-   meta-viewport    ████     2
-
- Score     61/100  (D)
-
- ✖  FAIL · 3 errors to fix
-────────────────────────────────────────────────────
+╭─ Results ─────────────────────────────────────────────────────
+│  FAIL  1 error  0 warnings
+│  Health  ■■■■■■■■■·  90/100 · grade A
+│  Pages 12  Time 7 ms
+├─ Issues by rule ──────────────────────────────────────────────
+│  ● img-alt   1
+│
+│  Start here img-alt (1) → lightship explain img-alt
+╰──────────────────────────────────────────────────────────────
 ```
 
-Se non vuoi installare il binario, dalla root di **questo** repo puoi puntare a
-una cartella qualsiasi del tuo PC (anche fuori dal repo):
+### In CI (fail the build on errors)
 
-```bash
-cargo run -p lightship -- "C:/percorso/al/tuo/progetto/dist"
-```
-
-### In CI (blocca la build sugli Error)
-
-Il modo più rapido: `lightship ci` genera `.github/workflows/lightship.yml` già
-pronto (build + analisi della cartella rilevata), senza sovrascrivere un workflow
-esistente. In alternativa, aggiungilo a mano:
+The quickest way: `lightship ci` scaffolds `.github/workflows/lightship.yml`
+(build + analyze the detected folder) without overwriting an existing workflow.
+Or add it by hand:
 
 ```yaml
-# esempio GitHub Actions
+# GitHub Actions example
 - run: npm run build
-- run: npx lightship dist   # esce con 1 se ci sono Error → il job fallisce
+- run: npx lightship dist   # exits 1 on errors → the job fails
+```
+
+For GitHub code scanning, upload the SARIF:
+
+```yaml
+- run: npx lightship dist --format sarif > lightship.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: lightship.sarif
 ```
 
 ---
 
-## Sviluppo
+## Development
 
 ```bash
-cargo build      # compila core + CLI
-cargo test       # unit test per regola + test di integrazione sulle fixture
-cargo run -p lightship -- crates/core/tests/fixtures   # demo sulle fixture
+cargo build      # build core + CLI
+cargo test       # per-rule unit tests + integration tests on fixtures
+cargo run -p lightship -- crates/core/tests/fixtures   # demo on the fixtures
 ```
 
-Struttura:
+Layout:
 
 ```
 crates/
-  core/                 # libreria pura: tutta la logica
+  core/                 # pure library: all the logic
     src/
-      lib.rs            # run / run_with / analyze (orchestrazione)
-      finding.rs        # Finding, Severity, line/col
-      rule.rs           # trait Rule (id + meta + check)
-      meta.rs           # RuleMeta (descrizione, help, esempi)
-      config.rs         # lightship.toml (off/severity/ignore)
+      lib.rs            # run / run_with / analyze (orchestration)
+      finding.rs        # Finding, Severity, line/col, fingerprint
+      rule.rs           # Rule trait (id + meta + scope + check)
+      meta.rs           # RuleMeta + Category
+      config.rs         # lightship.toml (severity/ignore/analyze/ci)
+      baseline.rs       # baseline / suppression
+      detect.rs         # framework & output-folder auto-detection
       report/           # rendering: pretty, compact, json, sarif, github
-      util.rs           # helper (span del tag, nome accessibile)
-      rules/            # una regola = un modulo
+      util.rs           # helpers (tag span, accessible name, ids, is_full_document)
+      rules/            # one rule = one module
     tests/
-      fixtures/         # pagine HTML di esempio (una violazione ciascuna)
-      integration.rs    # conteggi attesi
-  cli/                  # binario `lightship`: parsing argomenti + exit code
+      fixtures/         # sample HTML pages (one violation each)
+      integration.rs    # expected counts, fragments, presets, baseline
+  cli/                  # the `lightship` binary: arg parsing + exit code
 ```
 
-### Aggiungere una regola
+### Adding a rule
 
-1. Crea `crates/core/src/rules/la_mia_regola.rs` con una struct che implementa
-   `Rule` (`id` + `meta` con descrizione/help/esempi + `check`).
-2. Aggiungi `mod la_mia_regola;` e una riga in `rules::all()`.
-3. Aggiungi una fixture e un assert nel test di integrazione.
+1. Create `crates/core/src/rules/my_rule.rs` with a struct implementing `Rule`
+   (`id` + `meta` with category/help/examples + `check`; override `scope` for
+   document-level rules).
+2. Add `mod my_rule;` and one line in `rules::all()`.
+3. Add a unit test, and (optionally) a fixture + assertion in the integration test.
 
 ---
 
-## Fuori scope (per ora)
+## Out of scope (for now)
 
-Volutamente non ancora implementati: regole su CSS, budget di performance,
-binding `napi-rs` nativi e plugin Vite/Astro. Arriveranno nelle fasi successive.
+Deliberately not implemented yet: CSS rules, performance budgets, native
+`napi-rs` bindings, and Vite/Astro plugins. Coming in later phases.
