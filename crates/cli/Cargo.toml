@@ -1,6 +1,6 @@
 [package]
 name = "lightship"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 description = "Static linter for built HTML output (a11y / SEO / performance) that fails your CI build on problems."
 license = "MIT"

@@ -354,7 +354,7 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "lightship"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "clap",
  "clap_complete",
@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "lightship-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anstream 0.6.21",
  "globset",

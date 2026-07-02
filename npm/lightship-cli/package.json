@@ -1,6 +1,6 @@
 {
   "name": "lightship-cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Static linter for built HTML output (a11y / SEO / performance) that fails your CI build on problems. Rust-powered, no browser.",
   "keywords": [
     "linter",
@@ -34,11 +34,11 @@
     "node": ">=16"
   },
   "optionalDependencies": {
-    "@gianluca.darcangelo/lightship-cli-win32-x64": "1.0.0",
-    "@gianluca.darcangelo/lightship-cli-win32-arm64": "1.0.0",
-    "@gianluca.darcangelo/lightship-cli-darwin-x64": "1.0.0",
-    "@gianluca.darcangelo/lightship-cli-darwin-arm64": "1.0.0",
-    "@gianluca.darcangelo/lightship-cli-linux-x64": "1.0.0",
-    "@gianluca.darcangelo/lightship-cli-linux-arm64": "1.0.0"
+    "@gianluca.darcangelo/lightship-cli-win32-x64": "1.0.1",
+    "@gianluca.darcangelo/lightship-cli-win32-arm64": "1.0.1",
+    "@gianluca.darcangelo/lightship-cli-darwin-x64": "1.0.1",
+    "@gianluca.darcangelo/lightship-cli-darwin-arm64": "1.0.1",
+    "@gianluca.darcangelo/lightship-cli-linux-x64": "1.0.1",
+    "@gianluca.darcangelo/lightship-cli-linux-arm64": "1.0.1"
   }
 }
