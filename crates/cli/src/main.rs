@@ -17,7 +17,11 @@ use std::time::Duration;
                   Run with no arguments to auto-detect your build output folder \
                   (dist, build, out, _site, public...).",
     args_conflicts_with_subcommands = true,
-    subcommand_negates_reqs = true
+    subcommand_negates_reqs = true,
+    after_help = "Exit codes:\n  \
+                  0  no problems (or only issues within the allowed thresholds)\n  \
+                  1  errors found, or warning thresholds exceeded\n  \
+                  2  usage or configuration error"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -61,6 +65,13 @@ enum Command {
 
     /// Interactively apply safe automatic fixes (choose which, or all).
     Fix(FixArgs),
+
+    /// Generate shell completions (bash, zsh, fish, powershell, elvish).
+    Completions {
+        /// Shell to generate the script for.
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
 }
 
 #[derive(Args)]
@@ -109,7 +120,8 @@ impl FixArgs {
 
 #[derive(Args)]
 struct AnalyzeArgs {
-    /// Folder to analyze recursively (default: auto-detected build output).
+    /// Folder to analyze recursively, a single .html file, or `-` to read one
+    /// page from stdin (default: auto-detected build output).
     dir: Option<String>,
 
     /// Print only the summary panel, not individual findings.
@@ -164,6 +176,15 @@ struct AnalyzeArgs {
     /// Rule set to run: recommended (default), all, or a category name.
     #[arg(long, value_name = "PRESET")]
     preset: Option<String>,
+
+    /// Fail the build only on findings in these categories (comma-separated);
+    /// everything else is still reported but doesn't affect the exit code.
+    #[arg(
+        long = "fail-on-category",
+        value_delimiter = ',',
+        value_name = "CATEGORIES"
+    )]
+    fail_on_category: Vec<String>,
 
     /// Also run document-level rules (title, charset, viewport, single-h1...)
     /// on HTML fragments/partials that have no <html>/<head>.
@@ -244,9 +265,13 @@ impl AnalyzeArgs {
             include_fragments: self.include_fragments,
             config_path: self.config.clone(),
             baseline: self.baseline.clone(),
+            fail_on_categories: self.fail_on_category.clone(),
         }
     }
 }
+
+/// Exit code per errori di uso/configurazione (vedi `after_help`).
+const EXIT_USAGE: u8 = 2;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -262,6 +287,16 @@ fn main() -> ExitCode {
         Some(Command::Ci { dir }) => ci(dir.as_deref()),
         Some(Command::Baseline(a)) => baseline(&a),
         Some(Command::Fix(a)) => fix(&a),
+        Some(Command::Completions { shell }) => {
+            use clap::CommandFactory;
+            clap_complete::generate(
+                shell,
+                &mut Cli::command(),
+                "lightship",
+                &mut std::io::stdout(),
+            );
+            ExitCode::SUCCESS
+        }
     }
 }
 
@@ -273,7 +308,16 @@ fn run_analyze(a: &AnalyzeArgs) -> ExitCode {
             "lightship: unknown preset '{p}'.\nAvailable presets: {}",
             lightship_core::preset_names().join(", ")
         );
-        return ExitCode::FAILURE;
+        return ExitCode::from(EXIT_USAGE);
+    }
+    for cat in &a.fail_on_category {
+        if lightship_core::Category::parse(cat).is_none() {
+            eprintln!(
+                "lightship: unknown category '{cat}' in --fail-on-category.\n\
+                 Available categories: accessibility (a11y), seo, performance, security, correctness"
+            );
+            return ExitCode::from(EXIT_USAGE);
+        }
     }
 
     let opts = a.to_options();
@@ -284,7 +328,7 @@ fn run_analyze(a: &AnalyzeArgs) -> ExitCode {
         Some(d) => d.clone(),
         None => match resolve_auto_dir() {
             Some(d) => d,
-            None => return ExitCode::SUCCESS,
+            None => return ExitCode::from(EXIT_USAGE),
         },
     };
 
@@ -333,7 +377,7 @@ fn explain(rule: &str) -> ExitCode {
                 "lightship: unknown rule '{rule}'.\nAvailable rules: {}",
                 lightship_core::rule_ids().join(", ")
             );
-            ExitCode::FAILURE
+            ExitCode::from(EXIT_USAGE)
         }
     }
 }
@@ -345,7 +389,7 @@ fn init(dir: &str) -> ExitCode {
             "lightship: {} already exists, not overwriting",
             path.display()
         );
-        return ExitCode::FAILURE;
+        return ExitCode::from(EXIT_USAGE);
     }
 
     // Rileva il framework per un'intestazione utile e i "next steps".
@@ -370,7 +414,7 @@ fn init(dir: &str) -> ExitCode {
         }
         Err(e) => {
             eprintln!("lightship: could not create {}: {e}", path.display());
-            ExitCode::FAILURE
+            ExitCode::from(EXIT_USAGE)
         }
     }
 }
@@ -391,14 +435,14 @@ fn ci(dir_arg: Option<&str>) -> ExitCode {
             "lightship: {} already exists, not overwriting",
             path.display()
         );
-        return ExitCode::FAILURE;
+        return ExitCode::from(EXIT_USAGE);
     }
     if let Err(e) = std::fs::create_dir_all(&workflow_dir) {
         eprintln!(
             "lightship: could not create {}: {e}",
             workflow_dir.display()
         );
-        return ExitCode::FAILURE;
+        return ExitCode::from(EXIT_USAGE);
     }
     match std::fs::write(&path, lightship_core::ci_workflow(&build_dir)) {
         Ok(()) => {
@@ -410,7 +454,7 @@ fn ci(dir_arg: Option<&str>) -> ExitCode {
         }
         Err(e) => {
             eprintln!("lightship: could not create {}: {e}", path.display());
-            ExitCode::FAILURE
+            ExitCode::from(EXIT_USAGE)
         }
     }
 }
@@ -422,7 +466,7 @@ fn baseline(a: &AnalyzeArgs) -> ExitCode {
         Some(d) => d.clone(),
         None => match resolve_auto_dir() {
             Some(d) => d,
-            None => return ExitCode::FAILURE,
+            None => return ExitCode::from(EXIT_USAGE),
         },
     };
 
@@ -445,7 +489,7 @@ fn baseline(a: &AnalyzeArgs) -> ExitCode {
         }
         Err(e) => {
             eprintln!("lightship: could not write {}: {e}", path.display());
-            ExitCode::FAILURE
+            ExitCode::from(EXIT_USAGE)
         }
     }
 }
@@ -464,7 +508,7 @@ fn fix(a: &FixArgs) -> ExitCode {
         Some(d) => d.clone(),
         None => match resolve_auto_dir() {
             Some(d) => d,
-            None => return ExitCode::FAILURE,
+            None => return ExitCode::from(EXIT_USAGE),
         },
     };
 
@@ -487,7 +531,7 @@ fn fix(a: &FixArgs) -> ExitCode {
         let mut line = String::new();
         if std::io::stdin().read_line(&mut line).is_err() {
             eprintln!("lightship: could not read input");
-            return ExitCode::FAILURE;
+            return ExitCode::from(EXIT_USAGE);
         }
         match lightship_core::parse_selection(&line, fixes.len()) {
             Some(sel) => sel,
@@ -526,7 +570,7 @@ fn fix(a: &FixArgs) -> ExitCode {
         }
         Err(e) => {
             eprintln!("lightship: could not apply fixes: {e}");
-            ExitCode::FAILURE
+            ExitCode::from(EXIT_USAGE)
         }
     }
 }

@@ -2,6 +2,7 @@ mod a_no_text;
 mod aria_ref_target;
 mod button_name;
 mod canonical_link;
+mod deprecated_tag;
 mod duplicate_id;
 mod duplicate_meta;
 mod heading_order;
@@ -13,11 +14,15 @@ mod img_lazy_loading;
 mod label_control;
 mod label_for_target;
 mod lang_valid;
+mod link_rel_icon;
 mod link_target_blank;
 mod meta_charset;
 mod meta_description;
 mod meta_description_length;
+mod meta_refresh;
 mod meta_viewport;
+mod mixed_content;
+mod og_basic;
 mod positive_tabindex;
 mod render_blocking_script;
 mod single_h1;
@@ -39,6 +44,7 @@ pub fn all() -> Vec<Box<dyn Rule>> {
         Box::new(html_lang::HtmlLang),
         Box::new(title_present::TitlePresent),
         Box::new(duplicate_id::DuplicateId),
+        Box::new(meta_refresh::MetaRefresh),
         // Warn — accessibilità
         Box::new(a_no_text::ANoText),
         Box::new(button_name::ButtonName),
@@ -59,12 +65,17 @@ pub fn all() -> Vec<Box<dyn Rule>> {
         Box::new(single_h1::SingleH1),
         Box::new(canonical_link::CanonicalLink),
         Box::new(duplicate_meta::DuplicateMeta),
+        Box::new(link_rel_icon::LinkRelIcon),
+        // Warn — correttezza
+        Box::new(deprecated_tag::DeprecatedTag),
         // Warn — performance / sicurezza
         Box::new(img_dimensions::ImgDimensions),
         Box::new(render_blocking_script::RenderBlockingScript),
         Box::new(link_target_blank::LinkTargetBlank),
+        Box::new(mixed_content::MixedContent),
         // Opt-in (fuori dal preset `recommended`)
         Box::new(img_lazy_loading::ImgLazyLoading),
+        Box::new(og_basic::OgBasic),
     ]
 }
 

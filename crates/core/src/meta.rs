@@ -23,6 +23,17 @@ impl Category {
         }
     }
 
+    /// Etichetta compatta per il pannello dei risultati.
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Category::Accessibility => "A11y",
+            Category::Seo => "SEO",
+            Category::Performance => "Perf",
+            Category::Security => "Security",
+            Category::Correctness => "Correctness",
+        }
+    }
+
     /// Parsa un nome di categoria (accetta anche alias comuni come `a11y`).
     pub fn parse(s: &str) -> Option<Category> {
         match s.trim().to_ascii_lowercase().as_str() {

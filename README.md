@@ -23,7 +23,7 @@ Every problem is a **finding** with a severity:
 Rules are grouped into **categories** — accessibility, SEO, performance, security,
 correctness — which you can filter with `--only-category` and `--preset`.
 Run `lightship rules` for the full, always-up-to-date list, or
-`lightship explain <rule>` for details on any one. The current set (26 rules):
+`lightship explain <rule>` for details on any one. The current set (31 rules):
 
 ### Accessibility
 | Rule | Severity | Checks |
@@ -41,6 +41,7 @@ Run `lightship rules` for the full, always-up-to-date list, or
 | `positive-tabindex` | Warn  | No element uses a positive `tabindex`. |
 | `table-headers`     | Warn  | Data tables have header cells (`<th>`). |
 | `lang-valid`        | Warn  | The `<html lang>` value is a well-formed BCP-47 tag. |
+| `meta-refresh`      | Error | No `<meta http-equiv="refresh">` (users can't stop it — WCAG F41). |
 
 ### SEO
 | Rule | Severity | Checks |
@@ -53,6 +54,8 @@ Run `lightship rules` for the full, always-up-to-date list, or
 | `single-h1`               | Warn | The page has exactly one `<h1>`. |
 | `canonical-link`          | Warn | At most one `<link rel="canonical">` with a non-empty href. |
 | `duplicate-meta`          | Warn | Single-instance head tags (title/charset/viewport/description) aren't duplicated. |
+| `link-rel-icon`           | Warn | A favicon is declared with `<link rel="icon">`. |
+| `og-basic`                | Warn | Basic Open Graph tags (`og:title`, `og:description`, `og:image`). *(opt-in: `--preset all`)* |
 
 ### Performance
 | Rule | Severity | Checks |
@@ -65,11 +68,13 @@ Run `lightship rules` for the full, always-up-to-date list, or
 | Rule | Severity | Checks |
 |------|----------|--------|
 | `link-target-blank` | Warn | `<a target="_blank">` sets `rel="noopener"`. |
+| `mixed-content`     | Warn | No `script`/`link`/`img`/`iframe` loaded over insecure `http://`. |
 
 ### Correctness
 | Rule | Severity | Checks |
 |------|----------|--------|
-| `duplicate-id` | Error | Element ids are unique in the document. |
+| `duplicate-id`   | Error | Element ids are unique in the document. |
+| `deprecated-tag` | Warn  | No obsolete tags (`<center>`, `<font>`, `<marquee>`, …). |
 
 ### Fragments vs. full pages
 
@@ -146,7 +151,11 @@ lightship init [FOLDER]         # create a lightship.toml (detects your framewor
 lightship ci [FOLDER]           # scaffold a ready-to-use GitHub Actions workflow
 lightship baseline [FOLDER]     # freeze current findings so CI only fails on new ones
 lightship fix [FOLDER]          # interactively apply safe automatic fixes
+lightship completions <shell>   # shell completions (bash, zsh, fish, powershell, elvish)
 ```
+
+`FOLDER` can also be a **single .html file**, or `-` to lint one page from
+**stdin** — handy for editor and pre-commit integrations.
 
 > **Zero-config:** run with **no arguments** and Lightship tries to detect your
 > project's output folder (from the framework in `package.json` or config files;
@@ -156,7 +165,7 @@ lightship fix [FOLDER]          # interactively apply safe automatic fixes
 
 ### `analyze` options
 
-- `FOLDER` — folder to analyze (default: auto-detected).
+- `FOLDER` — folder to analyze, a single `.html` file, or `-` for stdin (default: auto-detected).
 - `-q, --quiet` — print only the summary panel.
 - `-v, --verbose` — more detailed output (no snippet truncation).
 - `--format <pretty|compact|json|sarif|github>` — output format (default `pretty`).
@@ -167,13 +176,16 @@ lightship fix [FOLDER]          # interactively apply safe automatic fixes
 - `--baseline <path>` — suppress known findings from a baseline file.
 - `--max-warnings <N>` — fail the build if warnings exceed `N`.
 - `--error-on-warnings` — fail on any warning.
+- `--fail-on-category <cats>` — only findings in these categories affect the exit code (everything is still reported).
 - `--color <auto|always|never>` / `--no-color` — control ANSI colors.
 - `--ascii` — ASCII-only glyphs (for terminals that don't render box-drawing).
 - `--no-suggestions` — hide the 💡 fix line.
 - `--config <path>` — explicit config file.
 - `--watch` — re-analyze automatically on file changes.
 
-Exit code: `0` if there are no errors (and warnings are within your thresholds), `1` otherwise.
+Exit codes: `0` — no problems (or within thresholds) · `1` — errors found or warning
+thresholds exceeded · `2` — usage or configuration error (unknown preset/category,
+unreadable or invalid config, no build folder found).
 
 ### Output
 
@@ -199,7 +211,10 @@ lightship dist              # future runs suppress the frozen findings
 
 Suppression is occurrence-accurate: if a page had one `img-alt` and now has two,
 the baseline covers one and the **new** one still fails the build. The baseline file
-is human-readable (rule + file + message) and safe to review in a PR.
+is human-readable (rule + file + message + code snippet) and safe to review in a PR.
+Fingerprints are derived from the **code snippet** when available, so suppression
+survives message wording changes; old (v1) baseline files still work, with a hint
+to re-run `lightship baseline` to upgrade them.
 
 ### Autofix (`lightship fix`)
 

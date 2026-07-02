@@ -88,6 +88,9 @@ pub struct Options {
     /// Percorso esplicito di un file di baseline (`--baseline`); se `None` viene
     /// cercato `lightship-baseline.json` nella cartella / cwd.
     pub baseline: Option<PathBuf>,
+    /// Se non vuoto, ai fini dell'**exit code** contano solo i finding di queste
+    /// categorie (il report li mostra comunque tutti).
+    pub fail_on_categories: Vec<String>,
 }
 
 impl Default for Options {
@@ -107,6 +110,7 @@ impl Default for Options {
             include_fragments: false,
             config_path: None,
             baseline: None,
+            fail_on_categories: Vec::new(),
         }
     }
 }
@@ -114,7 +118,7 @@ impl Default for Options {
 /// Regole **non** incluse nel preset `recommended` (opt-in): valgono solo con
 /// `--preset all` o selezionandole/categoria esplicitamente. Sono regole
 /// rumorose o molto opinabili che è meglio non attivare di default.
-const NON_RECOMMENDED: &[&str] = &["img-lazy-loading"];
+const NON_RECOMMENDED: &[&str] = &["img-lazy-loading", "og-basic"];
 
 /// Limite di default sulla dimensione di un file `.html`: oltre questa soglia lo
 /// saltiamo, per non caricare in memoria artefatti abnormi (bundle, mappe…).
@@ -127,10 +131,16 @@ pub fn run(dir: &str) -> i32 {
 }
 
 /// Analizza `dir`, renderizza nel formato scelto, scrive su stdout e ritorna
-/// l'**exit code**: `1` se ci sono Error (o se `max_warnings` è superato), `0`
-/// altrimenti.
+/// l'**exit code**: `0` = nessun problema, `1` = Error trovati o soglie warning
+/// superate, `2` = errore di configurazione/uso.
 pub fn run_with(dir: &str, opts: &Options) -> i32 {
-    let cfg = Config::load(dir, opts.config_path.as_deref());
+    let cfg = match Config::try_load(dir, opts.config_path.as_deref()) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("lightship: {e}");
+            return 2;
+        }
+    };
     let format = opts.format.or(cfg.format).unwrap_or(Format::Pretty);
 
     // Lo spinner ha senso solo per i formati umani e quando non siamo in
@@ -142,19 +152,46 @@ pub fn run_with(dir: &str, opts: &Options) -> i32 {
         suggestions: opts.suggestions,
         verbose: opts.verbose,
         quiet: opts.quiet,
-        dir: dir.to_string(),
+        dir: if dir == "-" {
+            "<stdin>".to_string()
+        } else {
+            dir.to_string()
+        },
         ascii: opts.ascii,
         width: report::term_width(),
     };
     print(&report::render(format, &analysis, &ropts), opts.color);
 
+    // `--fail-on-category`: ai fini dell'exit code contano solo i finding di
+    // quelle categorie (il report resta completo).
+    let (errors, warnings) = failing_counts(&analysis, &opts.fail_on_categories);
+
     // Soglie CI: le opzioni della CLI hanno precedenza, poi la config `[ci]`.
     let max_warnings = opts.max_warnings.or(cfg.ci_max_warnings);
     let error_on_warnings = opts.error_on_warnings || cfg.ci_error_on_warnings;
-    let fail = analysis.errors() > 0
-        || (error_on_warnings && analysis.warnings() > 0)
-        || max_warnings.is_some_and(|max| analysis.warnings() > max);
+    let fail = errors > 0
+        || (error_on_warnings && warnings > 0)
+        || max_warnings.is_some_and(|max| warnings > max);
     i32::from(fail)
+}
+
+/// Conteggio (errori, warning) rilevante per l'exit code: tutti i finding, o
+/// solo quelli delle categorie richieste con `--fail-on-category`.
+fn failing_counts(analysis: &Analysis, categories: &[String]) -> (usize, usize) {
+    if categories.is_empty() {
+        return (analysis.errors(), analysis.warnings());
+    }
+    let cats: Vec<Category> = categories.iter().filter_map(|s| Category::parse(s)).collect();
+    let (mut errors, mut warnings) = (0, 0);
+    for f in &analysis.findings {
+        if rules::meta(f.rule).is_some_and(|m| cats.contains(&m.category)) {
+            match f.severity {
+                Severity::Error => errors += 1,
+                Severity::Warn => warnings += 1,
+            }
+        }
+    }
+    (errors, warnings)
 }
 
 /// Scrive su stdout passando per `anstream`, che abilita i colori ANSI su
@@ -214,13 +251,26 @@ fn analyze_with(
 ) -> Analysis {
     let start = Instant::now();
 
-    let files: Vec<PathBuf> = discover(dir)
-        .into_iter()
-        .filter(|p| {
-            let rel = p.strip_prefix(dir).unwrap_or(p);
-            !cfg.is_ignored(rel)
-        })
-        .collect();
+    // Input: `-` = stdin, un file esplicito, oppure una cartella da scoprire.
+    let input = Path::new(dir);
+    let from_stdin = dir == "-";
+    let files: Vec<PathBuf> = if from_stdin {
+        Vec::new()
+    } else if input.is_file() {
+        // File singolo esplicito: niente discovery né filtri ignore (l'utente
+        // l'ha chiesto per nome). Abilita editor/pre-commit su un solo file.
+        vec![input.to_path_buf()]
+    } else {
+        // La walk su alberi grossi può richiedere un momento: segno di vita.
+        progress::discovering(show_progress, opts.ascii);
+        discover(dir)
+            .into_iter()
+            .filter(|p| {
+                let rel = p.strip_prefix(dir).unwrap_or(p);
+                !cfg.is_ignored(rel)
+            })
+            .collect()
+    };
 
     let rules = active_rules(opts, cfg);
 
@@ -229,17 +279,22 @@ fn analyze_with(
     let include_fragments = opts.include_fragments || cfg.include_fragments;
     let max_file_bytes = cfg.max_file_bytes.unwrap_or(DEFAULT_MAX_FILE_BYTES);
 
-    let progress = progress::Progress::new(files.len(), show_progress);
-    let results: Vec<LintOutcome> = files
-        .par_iter()
-        .map(|path| {
-            let r = lint_file(path, &rules, cfg, include_fragments, max_file_bytes);
-            progress.tick();
-            r
-        })
-        .collect();
+    let progress = progress::Progress::new(files.len(), show_progress, opts.ascii);
+    let results: Vec<LintOutcome> = if from_stdin {
+        vec![lint_stdin(&rules, cfg, include_fragments, max_file_bytes)]
+    } else {
+        files
+            .par_iter()
+            .map(|path| {
+                let r = lint_file(path, &rules, cfg, include_fragments, max_file_bytes);
+                progress.tick();
+                r
+            })
+            .collect()
+    };
     progress.finish();
 
+    let pages_seen = results.len();
     let skipped = results.iter().filter(|r| r.skipped).count();
     let mut findings: Vec<Finding> = results.into_iter().flat_map(|r| r.findings).collect();
 
@@ -251,10 +306,24 @@ fn analyze_with(
     let mut baselined = 0;
     if apply_baseline && let Some(path) = baseline::resolve(dir, opts.baseline.as_deref()) {
         if let Some(base) = Baseline::load(&path) {
+            // I baseline v1 contengono fingerprint derivati dal messaggio: li
+            // matchiamo con il fingerprint legacy e suggeriamo di rigenerarli.
+            let legacy = base.is_legacy();
+            if legacy {
+                eprintln!(
+                    "lightship: baseline {} uses an old format; run `lightship baseline` to refresh it",
+                    path.display()
+                );
+            }
             let mut remaining = base.fingerprint_counts();
             let before = findings.len();
             findings.retain(|f| {
-                if let Some(c) = remaining.get_mut(&f.fingerprint())
+                let fp = if legacy {
+                    f.fingerprint_v1()
+                } else {
+                    f.fingerprint()
+                };
+                if let Some(c) = remaining.get_mut(&fp)
                     && *c > 0
                 {
                     *c -= 1;
@@ -269,7 +338,7 @@ fn analyze_with(
     }
 
     Analysis {
-        pages: files.len() - skipped,
+        pages: pages_seen - skipped,
         skipped,
         baselined,
         findings,
@@ -498,26 +567,67 @@ fn lint_file(
     // Lettura tollerante: i file di build possono avere byte non-UTF-8 (es.
     // contenuti latin-1); li sostituiamo invece di saltare l'intero file.
     let source = String::from_utf8_lossy(&bytes).into_owned();
+    lint_source(path, &source, rules, cfg, include_fragments)
+}
 
-    let Ok(dom) = tl::parse(&source, tl::ParserOptions::default()) else {
-        return skip("could not parse");
+/// Legge una pagina da **stdin** e la linta come fosse un file `<stdin>`.
+/// Frammento o documento completo vengono distinti come per i file su disco.
+fn lint_stdin(
+    rules: &[Box<dyn Rule>],
+    cfg: &Config,
+    include_fragments: bool,
+    max_file_bytes: usize,
+) -> LintOutcome {
+    use std::io::Read;
+    let skipped = LintOutcome {
+        findings: Vec::new(),
+        skipped: true,
+    };
+    let mut bytes = Vec::new();
+    if std::io::stdin().read_to_end(&mut bytes).is_err() {
+        eprintln!("lightship: could not read stdin");
+        return skipped;
+    }
+    if bytes.len() > max_file_bytes {
+        eprintln!("lightship: skipping stdin larger than the size limit");
+        return skipped;
+    }
+    let source = String::from_utf8_lossy(&bytes).into_owned();
+    lint_source(Path::new("<stdin>"), &source, rules, cfg, include_fragments)
+}
+
+/// Applica le regole attive a un sorgente già letto, agganciando `path`/`source`
+/// e l'override di gravità della config. Cuore condiviso fra file e stdin.
+fn lint_source(
+    path: &Path,
+    source: &str,
+    rules: &[Box<dyn Rule>],
+    cfg: &Config,
+    include_fragments: bool,
+) -> LintOutcome {
+    let Ok(dom) = tl::parse(source, tl::ParserOptions::default()) else {
+        eprintln!("lightship: could not parse {}", path.display());
+        return LintOutcome {
+            findings: Vec::new(),
+            skipped: true,
+        };
     };
 
     // Su un frammento (niente `<html>`/`<head>`/doctype) le regole "di documento"
     // darebbero falsi positivi, quindi le saltiamo salvo richiesta esplicita.
-    let run_document_rules = include_fragments || util::is_full_document(&dom, &source);
+    let run_document_rules = include_fragments || util::is_full_document(&dom, source);
 
     // Sorgente condiviso fra tutti i finding del file: gli span vi puntano.
-    let shared: Arc<str> = Arc::from(source.as_str());
+    let shared: Arc<str> = Arc::from(source);
     // Indice delle righe costruito una sola volta per file e riusato da tutti i
     // finding per calcolare riga/colonna senza riscandire il sorgente.
-    let index = finding::LineIndex::new(&source);
+    let index = finding::LineIndex::new(source);
     let mut out = Vec::new();
     for rule in rules {
         if rule.scope() == RuleScope::Document && !run_document_rules {
             continue;
         }
-        for mut finding in rule.check(&dom, &source) {
+        for mut finding in rule.check(&dom, source) {
             finding.severity = cfg.severity_for(finding.rule, finding.severity);
             finding.attach_with(path.to_path_buf(), shared.clone(), &index);
             out.push(finding);
@@ -548,5 +658,45 @@ mod tests {
 
         assert_eq!(found.len(), 1, "atteso solo index.html, trovati: {found:?}");
         assert!(found[0].ends_with("index.html"));
+    }
+
+    /// Un path di file esplicito viene lintato direttamente, senza discovery.
+    #[test]
+    fn analyze_accetta_un_file_singolo() {
+        let base = std::env::temp_dir().join(format!("lightship-singlefile-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let file = base.join("page.html");
+        std::fs::write(&file, r#"<div><img src="a.png" width="1" height="1"></div>"#).unwrap();
+        // Un secondo file nella stessa cartella NON deve essere analizzato.
+        std::fs::write(base.join("other.html"), r#"<div><img src="b.png"></div>"#).unwrap();
+
+        let analysis = analyze(&file.to_string_lossy());
+        std::fs::remove_dir_all(&base).ok();
+
+        assert_eq!(analysis.pages, 1);
+        assert_eq!(analysis.findings.len(), 1);
+        assert_eq!(analysis.findings[0].rule, "img-alt");
+    }
+
+    /// `--fail-on-category` restringe i conteggi che decidono l'exit code.
+    #[test]
+    fn failing_counts_filtra_per_categoria() {
+        let mut a11y = Finding::new("img-alt", Severity::Error, "m", None);
+        a11y.file = PathBuf::from("a.html");
+        let mut seo = Finding::new("meta-charset", Severity::Warn, "m", None);
+        seo.file = PathBuf::from("a.html");
+        let analysis = Analysis {
+            pages: 1,
+            skipped: 0,
+            baselined: 0,
+            findings: vec![a11y, seo],
+            elapsed: Duration::from_millis(0),
+        };
+
+        assert_eq!(failing_counts(&analysis, &[]), (1, 1));
+        assert_eq!(failing_counts(&analysis, &["seo".to_string()]), (0, 1));
+        assert_eq!(failing_counts(&analysis, &["a11y".to_string()]), (1, 0));
+        // Categoria senza finding: non fallisce nulla.
+        assert_eq!(failing_counts(&analysis, &["security".to_string()]), (0, 0));
     }
 }

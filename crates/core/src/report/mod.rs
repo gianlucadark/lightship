@@ -223,7 +223,7 @@ mod tests {
         let region = &result["locations"][0]["physicalLocation"]["region"];
         assert_eq!(region["startLine"], 1);
         assert!(region["endColumn"].is_number());
-        assert!(result["partialFingerprints"]["lightshipFingerprint/v1"].is_string());
+        assert!(result["partialFingerprints"]["lightshipFingerprint/v2"].is_string());
     }
 
     #[test]

@@ -195,6 +195,17 @@ fn le_nuove_regole_scattano() {
         r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>a</title><title>b</title></head><body><p>x</p></body></html>"#,
     )
     .unwrap();
+    write("deprecated.html", "<center>x</center>");
+    write(
+        "mixed.html",
+        r#"<img src="http://cdn.x.com/a.png" alt="a" width="1" height="1" loading="lazy">"#,
+    );
+    // meta refresh: va nella <head>, quindi documento scritto per intero.
+    std::fs::write(
+        base.join("refresh.html"),
+        r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=/x"><title>t</title></head><body><p>x</p></body></html>"#,
+    )
+    .unwrap();
 
     let all = analyze_opts(
         &base.to_string_lossy(),
@@ -216,13 +227,20 @@ fn le_nuove_regole_scattano() {
         "lang-valid",
         "duplicate-meta",
         "img-lazy-loading",
+        "deprecated-tag",
+        "mixed-content",
+        "meta-refresh",
+        "link-rel-icon",
+        "og-basic",
     ] {
         assert!(
             count_rule(&all.findings, rule) >= 1,
             "la regola {rule} avrebbe dovuto scattare"
         );
     }
+    // Le regole opt-in restano fuori dal preset `recommended`.
     assert_eq!(count_rule(&recommended.findings, "img-lazy-loading"), 0);
+    assert_eq!(count_rule(&recommended.findings, "og-basic"), 0);
     assert!(count_rule(&recommended.findings, "positive-tabindex") >= 1);
 }
 
@@ -238,6 +256,7 @@ fn il_baseline_sopprime_i_finding_noti() {
             "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">\
              <meta name=\"viewport\" content=\"width=device-width\">\
              <meta name=\"description\" content=\"A sufficiently long description of the test page, well within the SEO range.\">\
+             <link rel=\"icon\" href=\"/favicon.ico\">\
              <title>t</title></head>\
              <body><h1>Title</h1>{body}</body></html>"
         )

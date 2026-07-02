@@ -52,6 +52,17 @@ impl Config {
     /// `<dir>/lightship.toml`, poi `./lightship.toml`. Se non trovata o non
     /// parsabile, ritorna la config di default segnalando l'errore su stderr.
     pub fn load(dir: &str, explicit: Option<&Path>) -> Config {
+        Self::try_load(dir, explicit).unwrap_or_else(|e| {
+            eprintln!("lightship: {e}");
+            Config::default()
+        })
+    }
+
+    /// Come [`load`](Self::load) ma **fallisce** se una config esiste e non è
+    /// leggibile/parsabile (o se il `--config` esplicito non esiste), invece di
+    /// degradare in silenzio al default: una config invalida ignorerebbe soglie
+    /// CI e regole disattivate. La CLI mappa l'errore sull'exit code 2.
+    pub fn try_load(dir: &str, explicit: Option<&Path>) -> Result<Config, String> {
         let path = explicit.map(PathBuf::from).or_else(|| {
             [Path::new(dir).join(CONFIG_FILE), PathBuf::from(CONFIG_FILE)]
                 .into_iter()
@@ -59,20 +70,12 @@ impl Config {
         });
 
         let Some(path) = path else {
-            return Config::default();
+            return Ok(Config::default());
         };
 
-        match std::fs::read_to_string(&path).map(|s| Self::parse(&s)) {
-            Ok(Ok(cfg)) => cfg,
-            Ok(Err(e)) => {
-                eprintln!("lightship: invalid {}: {e}", path.display());
-                Config::default()
-            }
-            Err(e) => {
-                eprintln!("lightship: could not read {}: {e}", path.display());
-                Config::default()
-            }
-        }
+        let raw = std::fs::read_to_string(&path)
+            .map_err(|e| format!("could not read {}: {e}", path.display()))?;
+        Self::parse(&raw).map_err(|e| format!("invalid {}: {e}", path.display()))
     }
 
     /// Parsa il contenuto TOML in una `Config`.

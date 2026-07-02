@@ -44,7 +44,7 @@ pub fn render(analysis: &Analysis) -> String {
                 "ruleId": f.rule,
                 "level": sarif_level(f.severity),
                 "message": { "text": f.message },
-                "partialFingerprints": { "lightshipFingerprint/v1": f.fingerprint() },
+                "partialFingerprints": { "lightshipFingerprint/v2": f.fingerprint() },
                 "locations": [{
                     "physicalLocation": {
                         "artifactLocation": { "uri": uri },

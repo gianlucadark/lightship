@@ -138,9 +138,18 @@ impl Finding {
     }
 
     /// Chiave stabile del finding, indipendente da riga/colonna, così un baseline
-    /// regge lo spostamento del codice. Deriva da regola + file + messaggio; il
-    /// path è normalizzato a `/` per essere uguale su Windows e Unix.
+    /// regge lo spostamento del codice. Formato v2: deriva da regola + file +
+    /// **snippet reale** (o messaggio per i finding senza span), così la
+    /// soppressione regge anche i cambi di wording o i valori dinamici nel
+    /// messaggio. Il path è normalizzato a `/` per essere uguale su Windows e Unix.
     pub fn fingerprint(&self) -> String {
+        let file = self.file.display().to_string().replace('\\', "/");
+        fingerprint_of(self.rule, &file, self.snippet().unwrap_or(&self.message))
+    }
+
+    /// Fingerprint nel vecchio formato v1 (regola + file + messaggio): serve solo
+    /// a matchare i baseline scritti prima del formato v2.
+    pub fn fingerprint_v1(&self) -> String {
         let file = self.file.display().to_string().replace('\\', "/");
         fingerprint_of(self.rule, &file, &self.message)
     }

@@ -1,6 +1,8 @@
 use crate::Analysis;
 use crate::finding::Severity;
+use crate::meta::Category;
 use crate::report::{Glyphs, RenderOpts};
+use crate::rules;
 use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -109,6 +111,31 @@ pub fn render(analysis: &Analysis, opts: &RenderOpts) -> String {
         "Time".dimmed(),
         format!("{} ms", analysis.elapsed.as_millis()).bold()
     );
+    // Ripartizione dei finding per categoria: dà il colpo d'occhio su *dove*
+    // sta il problema (a11y? SEO?) prima della lista per regola.
+    if !analysis.findings.is_empty() {
+        let counts = category_counts(analysis);
+        let parts: Vec<String> = CATEGORIES
+            .iter()
+            .zip(counts)
+            .map(|(cat, n)| {
+                let text = format!("{} {n}", cat.short_label());
+                if n > 0 {
+                    text.bold().to_string()
+                } else {
+                    text.dimmed().to_string()
+                }
+            })
+            .collect();
+        let _ = writeln!(
+            out,
+            "{}  {} {}",
+            g.bar.dimmed(),
+            "Issues".dimmed(),
+            parts.join(&format!(" {} ", "·".dimmed()))
+        );
+    }
+
     if analysis.skipped > 0 {
         let _ = writeln!(
             out,
@@ -198,9 +225,33 @@ fn sorted_rule_counts(analysis: &Analysis) -> Vec<(&'static str, usize, usize)> 
     rows
 }
 
+/// Ordine fisso delle categorie nella riga `Issues` del pannello.
+const CATEGORIES: [Category; 5] = [
+    Category::Accessibility,
+    Category::Seo,
+    Category::Performance,
+    Category::Security,
+    Category::Correctness,
+];
+
+/// Conta i finding per categoria, nell'ordine di [`CATEGORIES`].
+fn category_counts(analysis: &Analysis) -> [usize; 5] {
+    let mut counts = [0usize; 5];
+    for f in &analysis.findings {
+        if let Some(m) = rules::meta(f.rule)
+            && let Some(i) = CATEGORIES.iter().position(|&c| c == m.category)
+        {
+            counts[i] += 1;
+        }
+    }
+    counts
+}
+
 fn health_bar(score: u8, g: &Glyphs) -> String {
     const CELLS: usize = 10;
-    let filled = (score as usize * CELLS).div_ceil(100);
+    // Arrotondamento round-half-up: con `div_ceil` un 91 mostrava la barra
+    // piena come un 100, in disaccordo con voto e punteggio.
+    let filled = (score as usize * CELLS + 50) / 100;
     let raw = format!(
         "{}{}",
         g.cell_full.repeat(filled),
@@ -291,5 +342,28 @@ mod tests {
     fn health_bar_ascii() {
         let bar = health_bar(45, &Glyphs::new(true));
         assert!(bar.contains("#####....."));
+    }
+
+    #[test]
+    fn health_bar_piena_solo_vicino_al_100() {
+        // Con div_ceil un 91 mostrava 10 celle come un 100.
+        let g = Glyphs::new(true);
+        assert!(health_bar(91, &g).contains("#########."));
+        assert!(health_bar(95, &g).contains("##########"));
+        assert!(health_bar(100, &g).contains("##########"));
+    }
+
+    #[test]
+    fn riga_categorie_nel_pannello() {
+        let opts = RenderOpts {
+            suggestions: true,
+            verbose: false,
+            quiet: false,
+            dir: ".".into(),
+            ascii: true,
+            width: 80,
+        };
+        let out = render(&analysis(1, 2), &opts);
+        assert!(out.contains("Issues"), "{out}");
     }
 }
